@@ -34,18 +34,6 @@ function fixMismatchedClosingTags(code: string): string {
       continue
     }
 
-    if (ch === '{') {
-      let depth = 1
-      result += ch
-      i++
-      while (i < code.length && depth > 0) {
-        if (code[i] === '{') depth++
-        else if (code[i] === '}') depth--
-        if (depth > 0) result += code[i++]
-        else i++
-      }
-      continue
-    }
 
     if (ch === '<') {
       if (i + 1 < code.length) {
