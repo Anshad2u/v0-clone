@@ -120,11 +120,17 @@ export async function POST(request: NextRequest) {
   }
 
   try {
+    // Hide esbuild from Turbopack static analysis
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
     const esbuild = require('esb' + 'uild')
 
-    let code = rawCode.replace(/"use client"\s*;\s*/g, '')
+    let code = rawCode
     let componentName = 'App'
     
+    // Strip "use client"
+    code = code.replace(/"use client"\s*;\s*/g, '')
+    
+    // Handle export default function - use callback to avoid $1 issues
     const exportDefaultFn = code.match(/export\s+default\s+function\s+(\w+)/)
     if (exportDefaultFn) {
       componentName = exportDefaultFn[1]
@@ -137,10 +143,14 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Strip other exports
     code = code.replace(/^export\s+(const|let|var|class|function|interface|type)\s/mg, '$1 ')
     code = code.replace(/^export\s*\{/mg, '')
+    
+    // Fix JSX tag mismatches
     code = fixMismatchedClosingTags(code)
 
+    // Collect imports for importmap
     const imports = new Set<string>()
     const importRegex = /from\s+['"]([^'"]+)['"]/g
     let match
