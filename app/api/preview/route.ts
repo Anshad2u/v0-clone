@@ -17,7 +17,7 @@ function fixMismatchedClosingTags(code: string): string {
   while (i < code.length) {
     const ch = code[i]
 
-    // Skip string literals and template literals
+    // Skip string literals
     if (ch === '"' || ch === "'" || ch === '`') {
       const quote = ch
       result += quote
@@ -31,10 +31,7 @@ function fixMismatchedClosingTags(code: string): string {
           i++
         }
       }
-      if (i < code.length) {
-        result += code[i]
-        i++
-      }
+      if (i < code.length) result += code[i++]
       continue
     }
 
@@ -46,59 +43,45 @@ function fixMismatchedClosingTags(code: string): string {
       while (i < code.length && depth > 0) {
         if (code[i] === '{') depth++
         else if (code[i] === '}') depth--
-        if (depth > 0) {
-          result += code[i]
-          i++
-        } else {
-          i++
-          break
-        }
+        if (depth > 0) result += code[i++]
+        else i++
       }
       continue
     }
 
     // Handle JSX tags
     if (ch === '<') {
-      // Check if it's a closing tag or opening tag
       if (i + 1 < code.length) {
         const next = code[i + 1]
 
         // Closing tag </...>
         if (next === '/') {
-          // Extract tag name
           let j = i + 2
           while (j < code.length && /[\w$]/.test(code[j])) j++
           const tagName = code.substring(i + 2, j)
-
-          // Find the closing >
           while (j < code.length && code[j] !== '>') j++
           const closeEnd = j + 1
 
-          // Check stack for matching open tag
           if (stack.length > 0 && stack[stack.length - 1] === tagName) {
-            // Correct match
+            // Correct match - emit and pop
             result += code.substring(i, closeEnd)
             stack.pop()
           } else if (stack.length > 0) {
-            // Mismatched - fix it
+            // Mismatched - emit correct closing tag for what's actually open
             const expected = stack.pop()!
             result += '</' + expected + '>'
-            i = closeEnd
-          } else {
-            // No match - skip it
-            i = closeEnd
           }
+          // else: no open tag to close, skip the extra closing tag
+          i = closeEnd
           continue
         }
 
-        // Opening tag - check if it's JSX/XML
+        // Opening tag
         if (/[A-Za-z]/.test(next)) {
-          // Extract tag name
           let j = i + 1
           while (j < code.length && /[\w$]/.test(code[j])) j++
           const tagName = code.substring(i + 1, j)
 
-          // Find end of tag
           let depth = 0
           let k = j
           let selfClosing = false
@@ -119,9 +102,8 @@ function fixMismatchedClosingTags(code: string): string {
 
           result += code.substring(i, k)
 
-          // Push to stack if not self-closing and not a void element
-          const voidElements = ['area','br','col','hr','img','input','link','meta','path',
-                               'line','rect','circle','ellipse','polyline','polygon','stop']
+          // NOT void elements in React - push them to stack
+          const voidElements = ['br', 'hr', 'img', 'input', 'link', 'meta', 'area', 'base', 'col', 'embed', 'param', 'source', 'track', 'wbr']
           if (!selfClosing && !voidElements.includes(tagName.toLowerCase())) {
             stack.push(tagName)
           }
@@ -135,7 +117,7 @@ function fixMismatchedClosingTags(code: string): string {
     i++
   }
 
-  // Close any remaining open tags
+  // Auto-close any remaining open tags
   while (stack.length > 0) {
     result += '</' + stack.pop() + '>'
   }
@@ -150,14 +132,11 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
     const esbuild = require('esb' + 'uild')
 
-    // Strip "use client"
     let code = rawCode.replace(/"use client"\s*;\s*/g, '')
-
-    // Extract and handle export default
     let componentName = 'App'
+    
     const exportDefaultFn = code.match(/export\s+default\s+function\s+(\w+)/)
     if (exportDefaultFn) {
       componentName = exportDefaultFn[1]
@@ -170,14 +149,11 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Strip other exports
     code = code.replace(/^export\s+(const|let|var|class|function|interface|type)\s/mg, '$1 ')
     code = code.replace(/^export\s*\{/mg, '')
 
-    // Fix JSX tag mismatches
     code = fixMismatchedClosingTags(code)
 
-    // Collect imports for importmap
     const imports = new Set<string>()
     const importRegex = /from\s+['"]([^'"]+)['"]/g
     let match
