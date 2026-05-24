@@ -214,8 +214,8 @@ export async function POST(request: NextRequest) {
     const html = `<!DOCTYPE html>
 <html lang="en">
 <head>
+  <script type="importmap">${JSON.stringify({ imports: importMap }, null, 2)}</script>
   <script src="https://cdn.tailwindcss.com"></script>
-  <script type="importmap">${JSON.stringify(importMap, null, 2)}</script>
   <style>*, *::before, *::after { box-sizing: border-box; } body { margin: 0; font-family: system-ui, -apple-system, sans-serif; } #root { min-height: 100vh; }</style>
 </head>
 <body>
