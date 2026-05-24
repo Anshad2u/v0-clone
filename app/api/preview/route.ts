@@ -103,7 +103,7 @@ function fixMismatchedClosingTags(code: string): string {
           result += code.substring(i, k)
 
           // NOT void elements in React - push them to stack
-          const voidElements = ['br', 'hr', 'img', 'input', 'link', 'meta', 'area', 'base', 'col', 'embed', 'param', 'source', 'track', 'wbr']
+          const voidElements = ['br', 'hr', 'img', 'input', 'link', 'meta', 'base', 'col', 'embed', 'param', 'source', 'track', 'wbr']
           if (!selfClosing && !voidElements.includes(tagName.toLowerCase())) {
             stack.push(tagName)
           }
