@@ -150,6 +150,10 @@ export async function POST(request: NextRequest) {
     // Fix JSX tag mismatches
     code = fixMismatchedClosingTags(code)
 
+    // Debug log
+    console.log('BEFORE ESBUILD:', JSON.stringify(code))
+    console.log('LENGTH:', code.length)
+
     // Collect imports for importmap
     const imports = new Set<string>()
     const importRegex = /from\s+['"]([^'"]+)['"]/g
