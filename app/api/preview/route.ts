@@ -113,6 +113,47 @@ function fixMismatchedClosingTags(code: string): string {
   return result
 }
 
+/**
+ * Fix missing closing brace before `from` in import statements.
+ * AI often generates: import { X, Y\nfrom '...' instead of import { X, Y } from '...'
+ */
+function fixImportBraces(code: string): string {
+  // Multiline: import { ... \n from '...' → import { ... } from '...'
+  return code
+    .replace(/import\s+(\{[^}]*?)(\s*\n\s*)(from\s+['"`])/g, 'import $1 }$2$3')
+    .replace(/import\s+(\{[^}]*?)(\n)(from\s+)/g, 'import $1 }$2$3')
+    // Same line: import { ...  from '...' → import { ... } from '...'
+    .replace(/import\s+(\{[^}]*?)(\s+)(from\s+['"`])/g, 'import $1 }$2$3')
+}
+
+function isCodeIncomplete(code: string): boolean {
+  const trimmed = code.trim()
+  if (!trimmed) return true
+  const lines = trimmed.split('\n')
+  const lastLine = lines[lines.length - 1].trim()
+
+  // Incomplete import on last line
+  if (/import\s*\{[^}]*$/.test(lastLine) && !lastLine.includes(' from ')) return true
+  if (/import\s+(?:type\s+)?[a-zA-Z_$][\w$]*(?:\s*\{[^}]*$|$)/.test(lastLine)) return true
+
+  // Unclosed brackets (ignoring strings)
+  let depth = 0, inStr = false, strChar = ''
+  for (let i = 0; i < code.length; i++) {
+    const c = code[i]
+    if ((c === '"' || c === "'" || c === '`') && (i === 0 || code[i-1] !== '\\')) {
+      if (!inStr) { inStr = true; strChar = c }
+      else if (c === strChar) { inStr = false }
+      continue
+    }
+    if (inStr) continue
+    if (c === '{' || c === '(' || c === '[') depth++
+    if (c === '}' || c === ')' || c === ']') depth--
+  }
+  if (depth > 0) return true
+  if (trimmed.endsWith(' from') || /export\s+(default\s+)?[a-zA-Z_$][\w$]*\s*$/.test(lastLine)) return true
+  return false
+}
+
 export async function POST(request: NextRequest) {
   const { code: rawCode } = await request.json()
   if (!rawCode || typeof rawCode !== 'string') {
@@ -147,7 +188,14 @@ export async function POST(request: NextRequest) {
     code = code.replace(/^export\s+(const|let|var|class|function|interface|type)\s/mg, '$1 ')
     code = code.replace(/^export\s*\{/mg, '')
     
-    // Fix JSX tag mismatches
+    // Check for incomplete/streaming code
+    if (isCodeIncomplete(code)) {
+      return NextResponse.json({ error: 'Code is still streaming, try again when complete' }, { status: 200 })
+    }
+
+    // Fix missing closing brace in imports before JSX tag fix
+    code = fixImportBraces(code)
+
     code = fixMismatchedClosingTags(code)
 
     // Debug log

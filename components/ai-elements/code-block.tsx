@@ -1,8 +1,9 @@
 'use client'
 
 import { Button } from '@/components/ui/button'
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { cn } from '@/lib/utils'
-import { CheckIcon, CopyIcon } from 'lucide-react'
+import { CheckIcon, ChevronDownIcon, CopyIcon } from 'lucide-react'
 import type { ComponentProps, HTMLAttributes, ReactNode } from 'react'
 import { createContext, useContext, useState } from 'react'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
@@ -24,6 +25,7 @@ export type CodeBlockProps = HTMLAttributes<HTMLDivElement> & {
   language: string
   showLineNumbers?: boolean
   children?: ReactNode
+  defaultOpen?: boolean
 }
 
 export const CodeBlock = ({
@@ -32,73 +34,93 @@ export const CodeBlock = ({
   showLineNumbers = false,
   className,
   children,
+  defaultOpen = false,
   ...props
-}: CodeBlockProps) => (
-  <CodeBlockContext.Provider value={{ code }}>
-    <div
-      className={cn(
-        'relative w-full overflow-hidden rounded-md border bg-background text-foreground',
-        className,
-      )}
-      {...props}
-    >
-      <div className="relative">
-        <SyntaxHighlighter
-          className="overflow-hidden dark:hidden"
-          codeTagProps={{
-            className: 'font-mono text-sm',
-          }}
-          customStyle={{
-            margin: 0,
-            padding: '1rem',
-            fontSize: '0.875rem',
-            background: 'hsl(var(--background))',
-            color: 'hsl(var(--foreground))',
-          }}
-          language={language}
-          lineNumberStyle={{
-            color: 'hsl(var(--muted-foreground))',
-            paddingRight: '1rem',
-            minWidth: '2.5rem',
-          }}
-          showLineNumbers={showLineNumbers}
-          style={oneLight}
-        >
-          {code}
-        </SyntaxHighlighter>
+}: CodeBlockProps) => {
+  const [isOpen, setIsOpen] = useState(defaultOpen)
 
-        <SyntaxHighlighter
-          className="hidden overflow-hidden dark:block"
-          codeTagProps={{
-            className: 'font-mono text-sm',
-          }}
-          customStyle={{
-            margin: 0,
-            padding: '1rem',
-            fontSize: '0.875rem',
-            background: 'hsl(var(--background))',
-            color: 'hsl(var(--foreground))',
-          }}
-          language={language}
-          lineNumberStyle={{
-            color: 'hsl(var(--muted-foreground))',
-            paddingRight: '1rem',
-            minWidth: '2.5rem',
-          }}
-          showLineNumbers={showLineNumbers}
-          style={oneDark}
+  return (
+    <CodeBlockContext.Provider value={{ code }}>
+      <Collapsible open={isOpen} onOpenChange={setIsOpen} className="w-full">
+        <div
+          className={cn(
+            'relative w-full overflow-hidden rounded-md border bg-background text-foreground',
+            className,
+          )}
+          {...props}
         >
-          {code}
-        </SyntaxHighlighter>
-        {children && (
-          <div className="absolute top-2 right-2 flex items-center gap-2">
-            {children}
-          </div>
-        )}
-      </div>
-    </div>
-  </CodeBlockContext.Provider>
-)
+          <CollapsibleTrigger asChild>
+            <button
+              className="flex w-full items-center justify-between px-4 py-2 text-sm font-medium hover:bg-accent hover:text-accent-foreground"
+              type="button"
+            >
+              <span className="font-mono text-xs uppercase">{language || 'code'}</span>
+              <ChevronDownIcon
+                className={cn('h-4 w-4 transition-transform duration-200', isOpen && 'rotate-180')}
+              />
+            </button>
+          </CollapsibleTrigger>
+          <CollapsibleContent>
+            <div className="relative">
+              <SyntaxHighlighter
+                className="overflow-hidden dark:hidden"
+                codeTagProps={{
+                  className: 'font-mono text-sm',
+                }}
+                customStyle={{
+                  margin: 0,
+                  padding: '1rem',
+                  fontSize: '0.875rem',
+                  background: 'hsl(var(--background))',
+                  color: 'hsl(var(--foreground))',
+                }}
+                language={language}
+                lineNumberStyle={{
+                  color: 'hsl(var(--muted-foreground))',
+                  paddingRight: '1rem',
+                  minWidth: '2.5rem',
+                }}
+                showLineNumbers={showLineNumbers}
+                style={oneLight}
+              >
+                {code}
+              </SyntaxHighlighter>
+
+              <SyntaxHighlighter
+                className="hidden overflow-hidden dark:block"
+                codeTagProps={{
+                  className: 'font-mono text-sm',
+                }}
+                customStyle={{
+                  margin: 0,
+                  padding: '1rem',
+                  fontSize: '0.875rem',
+                  background: 'hsl(var(--background))',
+                  color: 'hsl(var(--foreground))',
+                }}
+                language={language}
+                lineNumberStyle={{
+                  color: 'hsl(var(--muted-foreground))',
+                  paddingRight: '1rem',
+                  minWidth: '2.5rem',
+                }}
+                showLineNumbers={showLineNumbers}
+                style={oneDark}
+              >
+                {code}
+              </SyntaxHighlighter>
+              {children && (
+                <div className="absolute top-2 right-2 flex items-center gap-2">
+                  {children}
+                </div>
+              )}
+            </div>
+          </CollapsibleContent>
+        </div>
+      </Collapsible>
+    </CodeBlockContext.Provider>
+  )
+}
 
 export type CodeBlockCopyButtonProps = ComponentProps<typeof Button> & {
   onCopy?: () => void
