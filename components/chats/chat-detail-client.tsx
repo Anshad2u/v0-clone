@@ -9,7 +9,6 @@ import { PreviewPanel } from '@/components/chat/preview-panel'
 import { ResizableLayout } from '@/components/shared/resizable-layout'
 import { BottomToolbar } from '@/components/shared/bottom-toolbar'
 import { useChat } from '@/hooks/use-chat'
-import { useStreaming } from '@/contexts/streaming-context'
 import { cn } from '@/lib/utils'
 import {
   type ImageAttachment,
@@ -25,46 +24,36 @@ export function ChatDetailClient() {
   const [activePanel, setActivePanel] = useState<'chat' | 'preview'>('chat')
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
-  const { handoff } = useStreaming()
   const {
     message,
     setMessage,
     currentChat,
     isLoading,
-    setIsLoading,
-    isStreaming,
-    chatHistory,
     isLoadingChat,
+    streamingContent,
+    chatHistory,
     handleSendMessage,
-    handleStreamingComplete,
-    handleChatData,
   } = useChat(chatId)
 
-  // Wrapper function to handle attachments
   const handleSubmitWithAttachments = (
     e: React.FormEvent<HTMLFormElement>,
     attachmentUrls?: Array<{ url: string }>,
   ) => {
-    // Clear sessionStorage immediately upon submission
     clearPromptFromStorage()
-    // Clear attachments after sending
     setAttachments([])
     return handleSendMessage(e, attachmentUrls)
   }
 
-  // Handle fullscreen keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape' && isFullscreen) {
         setIsFullscreen(false)
       }
     }
-
     document.addEventListener('keydown', handleKeyDown)
     return () => document.removeEventListener('keydown', handleKeyDown)
   }, [isFullscreen])
 
-  // Auto-focus the textarea on page load
   useEffect(() => {
     if (textareaRef.current && !isLoadingChat) {
       textareaRef.current.focus()
@@ -91,10 +80,8 @@ export function ChatDetailClient() {
                 <ChatMessages
                   chatHistory={chatHistory}
                   isLoading={isLoading}
-                  currentChat={currentChat || null}
-                  onStreamingComplete={handleStreamingComplete}
-                  onChatData={handleChatData}
-                  onStreamingStarted={() => setIsLoading(false)}
+                  isLoadingChat={isLoadingChat}
+                  streamingContent={streamingContent}
                 />
               </div>
 
@@ -112,14 +99,15 @@ export function ChatDetailClient() {
           }
           rightPanel={
             <PreviewPanel
-              currentChat={currentChat || null}
+              chatHistory={chatHistory}
+              streamingContent={streamingContent}
               isFullscreen={isFullscreen}
               setIsFullscreen={setIsFullscreen}
               refreshKey={refreshKey}
               setRefreshKey={setRefreshKey}
             />
           }
-        />
+          />
 
         <div className="md:hidden">
           <BottomToolbar

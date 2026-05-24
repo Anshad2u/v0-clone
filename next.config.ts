@@ -1,7 +1,8 @@
 import type { NextConfig } from 'next'
 
 const nextConfig: NextConfig = {
-  reactStrictMode: true, // Enable strict mode for better development experience
+  reactStrictMode: true,
+  serverExternalPackages: ['esbuild'],
 }
 
 export default nextConfig

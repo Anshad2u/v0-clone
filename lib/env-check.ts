@@ -8,9 +8,9 @@ export interface MissingEnvVar {
 export function checkRequiredEnvVars(): MissingEnvVar[] {
   const requiredVars: MissingEnvVar[] = [
     {
-      name: 'V0_API_KEY',
-      description: 'Your v0 API key for generating apps',
-      example: 'v0_sk_...',
+      name: 'NVIDIA_API_KEY',
+      description: 'Your NVIDIA NIM API key for AI model access',
+      example: 'nvapi-...',
       required: true,
     },
     {
@@ -22,7 +22,7 @@ export function checkRequiredEnvVars(): MissingEnvVar[] {
     {
       name: 'POSTGRES_URL',
       description: 'PostgreSQL database connection string',
-      example: '', // No example - user needs to provide their own
+      example: '',
       required: true,
     },
   ]
@@ -40,7 +40,7 @@ export function hasAllRequiredEnvVars(): boolean {
 }
 
 export const hasEnvVars = !!(
-  process.env.V0_API_KEY &&
+  process.env.NVIDIA_API_KEY &&
   process.env.AUTH_SECRET &&
   process.env.POSTGRES_URL
 )

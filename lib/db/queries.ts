@@ -1,29 +1,11 @@
 import 'server-only'
 
-import {
-  and,
-  asc,
-  count,
-  desc,
-  eq,
-  gt,
-  gte,
-  inArray,
-  lt,
-  type SQL,
-} from 'drizzle-orm'
+import { and, count, desc, eq, gte } from 'drizzle-orm'
 
-import {
-  users,
-  chat_ownerships,
-  anonymous_chat_logs,
-  type User,
-  type ChatOwnership,
-  type AnonymousChatLog,
-} from './schema'
-import { generateUUID } from '../utils'
-import { generateHashedPassword } from './utils'
+import { users, chats, messages, type User, type Chat, type Message } from './schema'
 import db from './connection'
+
+// ── Users ──────────────────────────────────────────────────────
 
 export async function getUser(email: string): Promise<Array<User>> {
   try {
@@ -39,13 +21,11 @@ export async function createUser(
   password: string,
 ): Promise<User[]> {
   try {
+    const { generateHashedPassword } = await import('./utils')
     const hashedPassword = generateHashedPassword(password)
     return await db
       .insert(users)
-      .values({
-        email,
-        password: hashedPassword,
-      })
+      .values({ email, password: hashedPassword })
       .returning()
   } catch (error) {
     console.error('Failed to create user in database')
@@ -55,15 +35,12 @@ export async function createUser(
 
 export async function createGuestUser(): Promise<User[]> {
   try {
+    const { generateUUID } = await import('../utils')
     const guestId = generateUUID()
     const guestEmail = `guest-${guestId}@example.com`
-
     return await db
       .insert(users)
-      .values({
-        email: guestEmail,
-        password: null,
-      })
+      .values({ email: guestEmail, password: null })
       .returning()
   } catch (error) {
     console.error('Failed to create guest user in database')
@@ -71,72 +48,150 @@ export async function createGuestUser(): Promise<User[]> {
   }
 }
 
-// Chat ownership functions
-export async function createChatOwnership({
-  v0ChatId,
+// ── Chats ───────────────────────────────────────────────────────
+
+export async function createChat({
   userId,
+  title,
 }: {
-  v0ChatId: string
   userId: string
-}) {
+  title?: string
+}): Promise<Chat> {
   try {
-    return await db
-      .insert(chat_ownerships)
-      .values({
-        v0_chat_id: v0ChatId,
-        user_id: userId,
-      })
-      .onConflictDoNothing({ target: chat_ownerships.v0_chat_id })
+    const [chat] = await db
+      .insert(chats)
+      .values({ user_id: userId, title: title || 'New Chat' })
+      .returning()
+    return chat
   } catch (error) {
-    console.error('Failed to create chat ownership in database')
+    console.error('Failed to create chat')
     throw error
   }
 }
 
-export async function getChatOwnership({ v0ChatId }: { v0ChatId: string }) {
+export async function getChat({
+  chatId,
+  userId,
+}: {
+  chatId: string
+  userId?: string
+}): Promise<Chat | undefined> {
   try {
-    const [ownership] = await db
+    const conditions = [eq(chats.id, chatId)]
+    if (userId) conditions.push(eq(chats.user_id, userId))
+
+    const [chat] = await db
       .select()
-      .from(chat_ownerships)
-      .where(eq(chat_ownerships.v0_chat_id, v0ChatId))
-    return ownership
+      .from(chats)
+      .where(and(...conditions))
+    return chat
   } catch (error) {
-    console.error('Failed to get chat ownership from database')
+    console.error('Failed to get chat')
     throw error
   }
 }
 
-export async function getChatIdsByUserId({
+export async function getChatsByUserId({
   userId,
 }: {
   userId: string
-}): Promise<string[]> {
-  try {
-    const ownerships = await db
-      .select({ v0ChatId: chat_ownerships.v0_chat_id })
-      .from(chat_ownerships)
-      .where(eq(chat_ownerships.user_id, userId))
-      .orderBy(desc(chat_ownerships.created_at))
-
-    return ownerships.map((o: { v0ChatId: string }) => o.v0ChatId)
-  } catch (error) {
-    console.error('Failed to get chat IDs by user from database')
-    throw error
-  }
-}
-
-export async function deleteChatOwnership({ v0ChatId }: { v0ChatId: string }) {
+}): Promise<Chat[]> {
   try {
     return await db
-      .delete(chat_ownerships)
-      .where(eq(chat_ownerships.v0_chat_id, v0ChatId))
+      .select()
+      .from(chats)
+      .where(eq(chats.user_id, userId))
+      .orderBy(desc(chats.updated_at))
   } catch (error) {
-    console.error('Failed to delete chat ownership from database')
+    console.error('Failed to get chats by user')
     throw error
   }
 }
 
-// Rate limiting functions
+export async function deleteChat({
+  chatId,
+  userId,
+}: {
+  chatId: string
+  userId: string
+}): Promise<void> {
+  try {
+    await db
+      .delete(chats)
+      .where(and(eq(chats.id, chatId), eq(chats.user_id, userId)))
+  } catch (error) {
+    console.error('Failed to delete chat')
+    throw error
+  }
+}
+
+export async function updateChatTitle({
+  chatId,
+  title,
+}: {
+  chatId: string
+  title: string
+}): Promise<void> {
+  try {
+    await db
+      .update(chats)
+      .set({ title, updated_at: new Date() })
+      .where(eq(chats.id, chatId))
+  } catch (error) {
+    console.error('Failed to update chat title')
+    throw error
+  }
+}
+
+// ── Messages ────────────────────────────────────────────────────
+
+export async function createMessage({
+  chatId,
+  role,
+  content,
+}: {
+  chatId: string
+  role: string
+  content: string
+}): Promise<Message> {
+  try {
+    const [msg] = await db
+      .insert(messages)
+      .values({ chat_id: chatId, role, content })
+      .returning()
+
+    // Touch chat updated_at
+    await db
+      .update(chats)
+      .set({ updated_at: new Date() })
+      .where(eq(chats.id, chatId))
+
+    return msg
+  } catch (error) {
+    console.error('Failed to create message')
+    throw error
+  }
+}
+
+export async function getMessagesByChatId({
+  chatId,
+}: {
+  chatId: string
+}): Promise<Message[]> {
+  try {
+    return await db
+      .select()
+      .from(messages)
+      .where(eq(messages.chat_id, chatId))
+      .orderBy(messages.created_at)
+  } catch (error) {
+    console.error('Failed to get messages by chat')
+    throw error
+  }
+}
+
+// ── Rate Limiting ───────────────────────────────────────────────
+
 export async function getChatCountByUserId({
   userId,
   differenceInHours,
@@ -148,63 +203,15 @@ export async function getChatCountByUserId({
     const hoursAgo = new Date(Date.now() - differenceInHours * 60 * 60 * 1000)
 
     const [stats] = await db
-      .select({ count: count(chat_ownerships.id) })
-      .from(chat_ownerships)
+      .select({ count: count(chats.id) })
+      .from(chats)
       .where(
-        and(
-          eq(chat_ownerships.user_id, userId),
-          gte(chat_ownerships.created_at, hoursAgo),
-        ),
+        and(eq(chats.user_id, userId), gte(chats.created_at, hoursAgo)),
       )
 
     return stats?.count || 0
   } catch (error) {
-    console.error('Failed to get chat count by user from database')
-    throw error
-  }
-}
-
-export async function getChatCountByIP({
-  ipAddress,
-  differenceInHours,
-}: {
-  ipAddress: string
-  differenceInHours: number
-}): Promise<number> {
-  try {
-    const hoursAgo = new Date(Date.now() - differenceInHours * 60 * 60 * 1000)
-
-    const [stats] = await db
-      .select({ count: count(anonymous_chat_logs.id) })
-      .from(anonymous_chat_logs)
-      .where(
-        and(
-          eq(anonymous_chat_logs.ip_address, ipAddress),
-          gte(anonymous_chat_logs.created_at, hoursAgo),
-        ),
-      )
-
-    return stats?.count || 0
-  } catch (error) {
-    console.error('Failed to get chat count by IP from database')
-    throw error
-  }
-}
-
-export async function createAnonymousChatLog({
-  ipAddress,
-  v0ChatId,
-}: {
-  ipAddress: string
-  v0ChatId: string
-}) {
-  try {
-    return await db.insert(anonymous_chat_logs).values({
-      ip_address: ipAddress,
-      v0_chat_id: v0ChatId,
-    })
-  } catch (error) {
-    console.error('Failed to create anonymous chat log in database')
+    console.error('Failed to get chat count by user')
     throw error
   }
 }

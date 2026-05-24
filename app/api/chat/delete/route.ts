@@ -1,13 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from 'v0-sdk'
-
-// Create v0 client with custom baseUrl if V0_API_URL is set
-const v0 = createClient(
-  process.env.V0_API_URL ? { baseUrl: process.env.V0_API_URL } : {},
-)
+import { auth } from '@/app/(auth)/auth'
+import { deleteChat } from '@/lib/db/queries'
 
 export async function POST(request: NextRequest) {
   try {
+    const session = await auth()
+
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
     const { chatId } = await request.json()
 
     if (!chatId) {
@@ -17,14 +19,9 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Delete the chat using v0 SDK
-    const result = await v0.chats.delete({
-      chatId,
-    })
+    await deleteChat({ chatId, userId: session.user.id })
 
-    console.log('Chat deleted successfully:', chatId)
-
-    return NextResponse.json(result)
+    return NextResponse.json({ success: true })
   } catch (error) {
     console.error('Error deleting chat:', error)
     return NextResponse.json(

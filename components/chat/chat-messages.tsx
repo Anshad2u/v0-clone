@@ -1,4 +1,6 @@
-import React, { useRef, useEffect } from 'react'
+'use client'
+
+import React, { useRef, useEffect, useState, useCallback } from 'react'
 import { Message, MessageContent } from '@/components/ai-elements/message'
 import {
   Conversation,
@@ -6,100 +8,77 @@ import {
 } from '@/components/ai-elements/conversation'
 import { Loader } from '@/components/ai-elements/loader'
 import { MessageRenderer } from '@/components/message-renderer'
-import { sharedComponents } from '@/components/shared-components'
-import { StreamingMessage } from '@v0-sdk/react'
 
 interface ChatMessage {
   type: 'user' | 'assistant'
   content: string | any
   isStreaming?: boolean
-  stream?: ReadableStream<Uint8Array> | null
-}
-
-interface Chat {
-  id: string
-  demo?: string
-  url?: string
 }
 
 interface ChatMessagesProps {
   chatHistory: ChatMessage[]
   isLoading: boolean
-  currentChat: Chat | null
-  onStreamingComplete: (finalContent: any) => void
-  onChatData: (chatData: any) => void
-  onStreamingStarted?: () => void
+  isLoadingChat?: boolean
+  streamingContent?: string
+  onStreamingComplete?: (finalContent: any) => void
 }
 
 export function ChatMessages({
   chatHistory,
   isLoading,
-  currentChat,
-  onStreamingComplete,
-  onChatData,
-  onStreamingStarted,
+  isLoadingChat,
+  streamingContent,
 }: ChatMessagesProps) {
-  const streamingStartedRef = useRef(false)
+  const messagesEndRef = useRef<HTMLDivElement>(null)
 
-  // Reset the streaming started flag when a new message starts loading
+  // Auto-scroll to bottom when new content arrives
   useEffect(() => {
-    if (isLoading) {
-      streamingStartedRef.current = false
-    }
-  }, [isLoading])
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [chatHistory, streamingContent])
 
-  if (chatHistory.length === 0) {
+  if (chatHistory.length === 0 && !isLoading && !isLoadingChat) {
     return (
       <Conversation>
         <ConversationContent>
-          <div>
-            {/* Empty conversation - messages will appear here when they load */}
-          </div>
+          <div />
         </ConversationContent>
       </Conversation>
     )
   }
 
   return (
-    <>
-      <Conversation>
-        <ConversationContent>
-          {chatHistory.map((msg, index) => (
-            <Message from={msg.type} key={index}>
-              {msg.isStreaming && msg.stream ? (
-                <StreamingMessage
-                  stream={msg.stream}
-                  messageId={`msg-${index}`}
-                  role={msg.type}
-                  onComplete={onStreamingComplete}
-                  onChatData={onChatData}
-                  onChunk={(chunk) => {
-                    // Hide external loader once we start receiving content (only once)
-                    if (onStreamingStarted && !streamingStartedRef.current) {
-                      streamingStartedRef.current = true
-                      onStreamingStarted()
-                    }
-                  }}
-                  onError={(error) => console.error('Streaming error:', error)}
-                  components={sharedComponents}
-                  showLoadingIndicator={false}
-                />
-              ) : (
-                <MessageRenderer
-                  content={msg.content}
-                  role={msg.type}
-                  messageId={`msg-${index}`}
-                />
-              )}
-            </Message>
-          ))}
-          {isLoading && (
-            <div className="flex justify-center py-4">
-              <Loader size={16} className="text-gray-500 dark:text-gray-400" />
-            </div>
-          )}
-        </ConversationContent>
-      </Conversation>
-    </>
+    <Conversation>
+      <ConversationContent>
+        {chatHistory.map((msg, index) => (
+          <Message from={msg.type} key={index}>
+            <MessageRenderer
+              content={msg.content}
+              role={msg.type}
+              messageId={`msg-${index}`}
+            />
+          </Message>
+        ))}
+
+        {/* Show streaming content */}
+        {streamingContent && (
+          <Message from="assistant">
+            <MessageRenderer
+              content={streamingContent}
+              role="assistant"
+              messageId="streaming"
+            />
+          </Message>
+        )}
+
+        {/* Loading indicator */}
+        {isLoading && !streamingContent && (
+          <div className="flex justify-center py-4">
+            <Loader size={16} className="text-gray-500 dark:text-gray-400" />
+          </div>
+        )}
+
+        <div ref={messagesEndRef} />
+      </ConversationContent>
+    </Conversation>
   )
 }

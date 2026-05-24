@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef, Suspense } from 'react'
+import { useState, useEffect, useRef, Suspense, useCallback } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import {
@@ -27,23 +27,16 @@ import { PreviewPanel } from '@/components/chat/preview-panel'
 import { ResizableLayout } from '@/components/shared/resizable-layout'
 import { BottomToolbar } from '@/components/shared/bottom-toolbar'
 
-// Component that uses useSearchParams - needs to be wrapped in Suspense
 function SearchParamsHandler({ onReset }: { onReset: () => void }) {
   const searchParams = useSearchParams()
-
-  // Reset UI when reset parameter is present
   useEffect(() => {
-    const reset = searchParams.get('reset')
-    if (reset === 'true') {
+    if (searchParams.get('reset') === 'true') {
       onReset()
-
-      // Remove the reset parameter from URL without triggering navigation
-      const newUrl = new URL(window.location.href)
-      newUrl.searchParams.delete('reset')
-      window.history.replaceState({}, '', newUrl.pathname)
+      const url = new URL(window.location.href)
+      url.searchParams.delete('reset')
+      window.history.replaceState({}, '', url.pathname)
     }
   }, [searchParams, onReset])
-
   return null
 }
 
@@ -52,105 +45,110 @@ export function HomeClient() {
   const [isLoading, setIsLoading] = useState(false)
   const [showChatInterface, setShowChatInterface] = useState(false)
   const [attachments, setAttachments] = useState<ImageAttachment[]>([])
-  const [isDragOver, setIsDragOver] = useState(false)
   const [chatHistory, setChatHistory] = useState<
-    Array<{
-      type: 'user' | 'assistant'
-      content: string | any
-      isStreaming?: boolean
-      stream?: ReadableStream<Uint8Array> | null
-    }>
+    Array<{ type: 'user' | 'assistant'; content: string; isStreaming?: boolean }>
   >([])
+  const [streamingContent, setStreamingContent] = useState('')
   const [currentChatId, setCurrentChatId] = useState<string | null>(null)
-  const [currentChat, setCurrentChat] = useState<{
-    id: string
-    demo?: string
-  } | null>(null)
+  const [currentChat, setCurrentChat] = useState<{ id: string } | null>(null)
   const [isFullscreen, setIsFullscreen] = useState(false)
   const [refreshKey, setRefreshKey] = useState(0)
   const [activePanel, setActivePanel] = useState<'chat' | 'preview'>('chat')
-  const router = useRouter()
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const abortRef = useRef<AbortController | null>(null)
 
-  const handleReset = () => {
-    // Reset all chat-related state
+  const handleReset = useCallback(() => {
     setShowChatInterface(false)
     setChatHistory([])
+    setStreamingContent('')
     setCurrentChatId(null)
     setCurrentChat(null)
     setMessage('')
     setAttachments([])
     setIsLoading(false)
     setIsFullscreen(false)
-    setRefreshKey((prev) => prev + 1)
-
-    // Clear any stored data
     clearPromptFromStorage()
+  }, [])
 
-    // Focus textarea after reset
-    setTimeout(() => {
-      if (textareaRef.current) {
-        textareaRef.current.focus()
-      }
-    }, 0)
-  }
-
-  // Auto-focus the textarea on page load and restore from sessionStorage
   useEffect(() => {
-    if (textareaRef.current) {
-      textareaRef.current.focus()
-    }
-
-    // Restore prompt data from sessionStorage
-    const storedData = loadPromptFromStorage()
-    if (storedData) {
-      setMessage(storedData.message)
-      if (storedData.attachments.length > 0) {
-        const restoredAttachments = storedData.attachments.map(
-          createImageAttachmentFromStored,
-        )
-        setAttachments(restoredAttachments)
+    textareaRef.current?.focus()
+    const stored = loadPromptFromStorage()
+    if (stored) {
+      setMessage(stored.message)
+      if (stored.attachments.length > 0) {
+        setAttachments(stored.attachments.map(createImageAttachmentFromStored))
       }
     }
   }, [])
 
-  // Save prompt data to sessionStorage whenever message or attachments change
   useEffect(() => {
     if (message.trim() || attachments.length > 0) {
       savePromptToStorage(message, attachments)
     } else {
-      // Clear sessionStorage if both message and attachments are empty
       clearPromptFromStorage()
     }
   }, [message, attachments])
 
-  // Image attachment handlers
-  const handleImageFiles = async (files: File[]) => {
-    try {
-      const newAttachments = await Promise.all(
-        files.map((file) => createImageAttachment(file)),
-      )
-      setAttachments((prev) => [...prev, ...newAttachments])
-    } catch (error) {
-      console.error('Error processing image files:', error)
-    }
-  }
+  // SSE stream parser
+  const processSSEStream = useCallback(
+    async (response: Response, chatId: string) => {
+      if (!response.body) throw new Error('No response body')
 
-  const handleRemoveAttachment = (id: string) => {
-    setAttachments((prev) => prev.filter((att) => att.id !== id))
-  }
+      setStreamingContent('')
+      setIsLoading(false)
 
-  const handleDragOver = () => {
-    setIsDragOver(true)
-  }
+      const reader = response.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+      let fullText = ''
 
-  const handleDragLeave = () => {
-    setIsDragOver(false)
-  }
+      try {
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) break
 
-  const handleDrop = () => {
-    setIsDragOver(false)
-  }
+          buffer += decoder.decode(value, { stream: true })
+          const lines = buffer.split('\n')
+          buffer = lines.pop() || '' // Keep partial line
+
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              try {
+                const parsed = JSON.parse(line.slice(6))
+                if (parsed.text) {
+                  fullText += parsed.text
+                  setStreamingContent(fullText)
+                }
+              } catch {
+                // ignore parse errors for non-JSON data events
+              }
+            }
+          }
+        }
+
+        // Process any remaining buffer
+        if (buffer.startsWith('data: ')) {
+          try {
+            const parsed = JSON.parse(buffer.slice(6))
+            if (parsed.text) {
+              fullText += parsed.text
+              setStreamingContent(fullText)
+            }
+          } catch {}
+        }
+      } finally {
+        reader.releaseLock()
+      }
+
+      // Streaming done — finalize chat history
+      setChatHistory((prev) => [
+        ...prev,
+        { type: 'assistant', content: fullText },
+      ])
+      setStreamingContent('')
+    },
+    [],
+  )
 
   const handleSendMessage = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
@@ -158,181 +156,57 @@ export function HomeClient() {
 
     const userMessage = message.trim()
     const currentAttachments = [...attachments]
-
-    // Clear sessionStorage immediately upon submission
     clearPromptFromStorage()
-
     setMessage('')
     setAttachments([])
-
-    // Immediately show chat interface and add user message
     setShowChatInterface(true)
-    setChatHistory([
-      {
-        type: 'user',
-        content: userMessage,
-      },
-    ])
+    setChatHistory([{ type: 'user', content: userMessage }])
     setIsLoading(true)
 
     try {
       const response = await fetch('/api/chat', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           message: userMessage,
           streaming: true,
-          attachments: currentAttachments.map((att) => ({ url: att.dataUrl })),
+          attachments: currentAttachments.map((a) => ({ url: a.dataUrl })),
         }),
       })
 
       if (!response.ok) {
-        // Try to get the specific error message from the response
-        let errorMessage =
-          'Sorry, there was an error processing your message. Please try again.'
+        let errMsg = 'Sorry, there was an error processing your message.'
         try {
-          const errorData = await response.json()
-          if (errorData.message) {
-            errorMessage = errorData.message
-          } else if (response.status === 429) {
-            errorMessage =
-              'You have exceeded your maximum number of messages for the day. Please try again later.'
-          }
-        } catch (parseError) {
-          console.error('Error parsing error response:', parseError)
-          if (response.status === 429) {
-            errorMessage =
-              'You have exceeded your maximum number of messages for the day. Please try again later.'
-          }
-        }
-        throw new Error(errorMessage)
+          const err = await response.json()
+          errMsg = err.message || errMsg
+        } catch {}
+        throw new Error(errMsg)
       }
 
-      if (!response.body) {
-        throw new Error('No response body for streaming')
+      // Get chat ID from response header
+      const chatId = response.headers.get('X-Chat-Id') || ''
+      if (chatId) {
+        setCurrentChatId(chatId)
+        setCurrentChat({ id: chatId })
+        window.history.pushState(null, '', `/chats/${chatId}`)
       }
 
-      setIsLoading(false)
-
-      // Add streaming assistant response
-      setChatHistory((prev) => [
-        ...prev,
-        {
-          type: 'assistant',
-          content: [],
-          isStreaming: true,
-          stream: response.body,
-        },
-      ])
+      // Process SSE stream
+      await processSSEStream(response, chatId)
     } catch (error) {
-      console.error('Error creating chat:', error)
       setIsLoading(false)
-
-      // Use the specific error message if available, otherwise fall back to generic message
-      const errorMessage =
-        error instanceof Error
-          ? error.message
-          : 'Sorry, there was an error processing your message. Please try again.'
-
+      setStreamingContent('')
       setChatHistory((prev) => [
         ...prev,
         {
           type: 'assistant',
-          content: errorMessage,
+          content:
+            error instanceof Error
+              ? error.message
+              : 'Sorry, there was an error.',
         },
       ])
     }
-  }
-
-  const handleChatData = async (chatData: any) => {
-    if (chatData.id) {
-      // Only set currentChat if it's not already set or if this is the main chat object
-      if (!currentChatId || chatData.object === 'chat') {
-        setCurrentChatId(chatData.id)
-        setCurrentChat({ id: chatData.id })
-
-        // Update URL without triggering Next.js routing
-        window.history.pushState(null, '', `/chats/${chatData.id}`)
-      }
-
-      // Create ownership record for new chat (only if this is a new chat)
-      if (!currentChatId) {
-        try {
-          await fetch('/api/chat/ownership', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              chatId: chatData.id,
-            }),
-          })
-        } catch (error) {
-          console.error('Failed to create chat ownership:', error)
-          // Don't fail the UI if ownership creation fails
-        }
-      }
-    }
-  }
-
-  const handleStreamingComplete = async (finalContent: any) => {
-    setIsLoading(false)
-
-    // Update chat history with final content
-    setChatHistory((prev) => {
-      const updated = [...prev]
-      const lastIndex = updated.length - 1
-      if (lastIndex >= 0 && updated[lastIndex].isStreaming) {
-        updated[lastIndex] = {
-          ...updated[lastIndex],
-          content: finalContent,
-          isStreaming: false,
-          stream: undefined,
-        }
-      }
-      return updated
-    })
-
-    // Fetch demo URL after streaming completes
-    // Use the current state by accessing it in the state updater
-    setCurrentChat((prevCurrentChat) => {
-      if (prevCurrentChat?.id) {
-        // Fetch demo URL asynchronously
-        fetch(`/api/chats/${prevCurrentChat.id}`)
-          .then((response) => {
-            if (response.ok) {
-              return response.json()
-            } else {
-              console.warn('Failed to fetch chat details:', response.status)
-              return null
-            }
-          })
-          .then((chatDetails) => {
-            if (chatDetails) {
-              const demoUrl =
-                chatDetails?.latestVersion?.demoUrl || chatDetails?.demo
-
-              // Update the current chat with demo URL
-              if (demoUrl) {
-                setCurrentChat((prev) =>
-                  prev ? { ...prev, demo: demoUrl } : null,
-                )
-                if (window.innerWidth < 768) {
-                  setActivePanel('preview')
-                }
-              }
-            }
-          })
-          .catch((error) => {
-            console.error('Error fetching demo URL:', error)
-          })
-      }
-
-      // Return the current state unchanged for now
-      return prevCurrentChat
-    })
   }
 
   const handleChatSendMessage = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -342,16 +216,12 @@ export function HomeClient() {
     const userMessage = message.trim()
     setMessage('')
     setIsLoading(true)
-
-    // Add user message to chat history
     setChatHistory((prev) => [...prev, { type: 'user', content: userMessage }])
 
     try {
       const response = await fetch('/api/chat', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           message: userMessage,
           chatId: currentChatId,
@@ -360,73 +230,83 @@ export function HomeClient() {
       })
 
       if (!response.ok) {
-        // Try to get the specific error message from the response
-        let errorMessage =
-          'Sorry, there was an error processing your message. Please try again.'
+        let errMsg = 'Sorry, there was an error processing your message.'
         try {
-          const errorData = await response.json()
-          if (errorData.message) {
-            errorMessage = errorData.message
-          } else if (response.status === 429) {
-            errorMessage =
-              'You have exceeded your maximum number of messages for the day. Please try again later.'
-          }
-        } catch (parseError) {
-          console.error('Error parsing error response:', parseError)
-          if (response.status === 429) {
-            errorMessage =
-              'You have exceeded your maximum number of messages for the day. Please try again later.'
-          }
-        }
-        throw new Error(errorMessage)
+          const err = await response.json()
+          errMsg = err.message || errMsg
+        } catch {}
+        throw new Error(errMsg)
       }
 
-      if (!response.body) {
-        throw new Error('No response body for streaming')
-      }
-
-      setIsLoading(false)
-
-      // Add streaming response
-      setChatHistory((prev) => [
-        ...prev,
-        {
-          type: 'assistant',
-          content: [],
-          isStreaming: true,
-          stream: response.body,
-        },
-      ])
+      await processSSEStream(response, currentChatId)
     } catch (error) {
-      console.error('Error:', error)
-
-      // Use the specific error message if available, otherwise fall back to generic message
-      const errorMessage =
-        error instanceof Error
-          ? error.message
-          : 'Sorry, there was an error processing your message. Please try again.'
-
+      setIsLoading(false)
+      setStreamingContent('')
       setChatHistory((prev) => [
         ...prev,
         {
           type: 'assistant',
-          content: errorMessage,
+          content:
+            error instanceof Error
+              ? error.message
+              : 'Sorry, there was an error.',
         },
       ])
-      setIsLoading(false)
     }
   }
+
+  // SSE stream parser for existing chat (used from chat detail page)
+  const processStreamFromResponse = useCallback(
+    async (response: Response) => {
+      if (!response.body) throw new Error('No response body')
+      setIsLoading(false)
+      setStreamingContent('')
+
+      const reader = response.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+      let fullText = ''
+
+      try {
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) break
+          buffer += decoder.decode(value, { stream: true })
+          const lines = buffer.split('\n')
+          buffer = lines.pop() || ''
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              try {
+                const parsed = JSON.parse(line.slice(6))
+                if (parsed.text) {
+                  fullText += parsed.text
+                  setStreamingContent(fullText)
+                }
+              } catch {}
+            }
+          }
+        }
+      } finally {
+        reader.releaseLock()
+      }
+
+      setChatHistory((prev) => [
+        ...prev,
+        { type: 'assistant', content: fullText },
+      ])
+      setStreamingContent('')
+      setCurrentChat((prev) => (prev ? { ...prev } : null))
+    },
+    [],
+  )
 
   if (showChatInterface) {
     return (
       <div className="min-h-screen bg-gray-50 dark:bg-black flex flex-col">
-        {/* Handle search params with Suspense boundary */}
         <Suspense fallback={null}>
           <SearchParamsHandler onReset={handleReset} />
         </Suspense>
-
         <AppHeader />
-
         <div className="flex flex-col h-[calc(100vh-64px-40px)] md:h-[calc(100vh-64px)]">
           <ResizableLayout
             className="flex-1 min-h-0"
@@ -438,13 +318,9 @@ export function HomeClient() {
                   <ChatMessages
                     chatHistory={chatHistory}
                     isLoading={isLoading}
-                    currentChat={currentChat}
-                    onStreamingComplete={handleStreamingComplete}
-                    onChatData={handleChatData}
-                    onStreamingStarted={() => setIsLoading(false)}
+                    streamingContent={streamingContent}
                   />
                 </div>
-
                 <ChatInput
                   message={message}
                   setMessage={setMessage}
@@ -456,7 +332,8 @@ export function HomeClient() {
             }
             rightPanel={
               <PreviewPanel
-                currentChat={currentChat}
+                chatHistory={chatHistory}
+                streamingContent={streamingContent}
                 isFullscreen={isFullscreen}
                 setIsFullscreen={setIsFullscreen}
                 refreshKey={refreshKey}
@@ -464,7 +341,6 @@ export function HomeClient() {
               />
             }
           />
-
           <div className="md:hidden">
             <BottomToolbar
               activePanel={activePanel}
@@ -479,62 +355,59 @@ export function HomeClient() {
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-black flex flex-col">
-      {/* Handle search params with Suspense boundary */}
       <Suspense fallback={null}>
         <SearchParamsHandler onReset={handleReset} />
       </Suspense>
-
       <AppHeader />
-
-      {/* Main Content */}
       <div className="flex-1 flex items-center justify-center px-4 sm:px-6 lg:px-8">
         <div className="max-w-4xl w-full">
           <div className="text-center mb-8 md:mb-12">
             <h2 className="text-2xl sm:text-3xl md:text-4xl font-bold text-gray-900 dark:text-white mb-4">
-              What can we build together?
+              What dashboard can we build?
             </h2>
           </div>
-
-          {/* Prompt Input */}
           <div className="max-w-2xl mx-auto">
             <PromptInput
               onSubmit={handleSendMessage}
               className="w-full relative"
-              onImageDrop={handleImageFiles}
-              isDragOver={isDragOver}
-              onDragOver={handleDragOver}
-              onDragLeave={handleDragLeave}
-              onDrop={handleDrop}
+              onImageDrop={async (files) => {
+                const newAttachments = await Promise.all(
+                  files.map((f) => createImageAttachment(f)),
+                )
+                setAttachments((prev) => [...prev, ...newAttachments])
+              }}
             >
               <PromptInputImagePreview
                 attachments={attachments}
-                onRemove={handleRemoveAttachment}
+                onRemove={(id) =>
+                  setAttachments((prev) => prev.filter((a) => a.id !== id))
+                }
               />
               <PromptInputTextarea
                 ref={textareaRef}
                 onChange={(e) => setMessage(e.target.value)}
                 value={message}
-                placeholder="Describe what you want to build..."
+                placeholder="Describe the dashboard you want to build..."
                 className="min-h-[80px] text-base"
                 disabled={isLoading}
               />
               <PromptInputToolbar>
                 <PromptInputTools>
                   <PromptInputImageButton
-                    onImageSelect={handleImageFiles}
+                    onImageSelect={async (files) => {
+                      const newAttachments = await Promise.all(
+                        files.map((f) => createImageAttachment(f)),
+                      )
+                      setAttachments((prev) => [...prev, ...newAttachments])
+                    }}
                     disabled={isLoading}
                   />
                 </PromptInputTools>
                 <PromptInputTools>
                   <PromptInputMicButton
-                    onTranscript={(transcript) => {
-                      setMessage(
-                        (prev) => prev + (prev ? ' ' : '') + transcript,
-                      )
-                    }}
-                    onError={(error) => {
-                      console.error('Speech recognition error:', error)
-                    }}
+                    onTranscript={(t) =>
+                      setMessage((prev) => prev + (prev ? ' ' : '') + t)
+                    }
                     disabled={isLoading}
                   />
                   <PromptInputSubmit
@@ -545,127 +418,63 @@ export function HomeClient() {
               </PromptInputToolbar>
             </PromptInput>
           </div>
-
-          {/* Suggestions */}
           <div className="mt-4 max-w-2xl mx-auto">
             <Suggestions>
               <Suggestion
                 onClick={() => {
-                  setMessage('Landing page')
-                  // Submit after setting message
-                  setTimeout(() => {
-                    const form = textareaRef.current?.form
-                    if (form) {
-                      form.requestSubmit()
-                    }
-                  }, 0)
+                  setMessage('Sales dashboard with charts and KPIs')
+                  setTimeout(() => textareaRef.current?.form?.requestSubmit(), 0)
                 }}
-                suggestion="Landing page"
+                suggestion="Sales Dashboard"
               />
               <Suggestion
                 onClick={() => {
-                  setMessage('Todo app')
-                  // Submit after setting message
-                  setTimeout(() => {
-                    const form = textareaRef.current?.form
-                    if (form) {
-                      form.requestSubmit()
-                    }
-                  }, 0)
+                  setMessage('Analytics dashboard with metrics grid')
+                  setTimeout(() => textareaRef.current?.form?.requestSubmit(), 0)
                 }}
-                suggestion="Todo app"
+                suggestion="Analytics Dashboard"
               />
               <Suggestion
                 onClick={() => {
-                  setMessage('Dashboard')
-                  // Submit after setting message
-                  setTimeout(() => {
-                    const form = textareaRef.current?.form
-                    if (form) {
-                      form.requestSubmit()
-                    }
-                  }, 0)
+                  setMessage('Project management dashboard with task table')
+                  setTimeout(() => textareaRef.current?.form?.requestSubmit(), 0)
                 }}
-                suggestion="Dashboard"
+                suggestion="Project Dashboard"
               />
               <Suggestion
                 onClick={() => {
-                  setMessage('Blog')
-                  // Submit after setting message
-                  setTimeout(() => {
-                    const form = textareaRef.current?.form
-                    if (form) {
-                      form.requestSubmit()
-                    }
-                  }, 0)
+                  setMessage('Financial dashboard with revenue charts')
+                  setTimeout(() => textareaRef.current?.form?.requestSubmit(), 0)
                 }}
-                suggestion="Blog"
+                suggestion="Financial Dashboard"
               />
               <Suggestion
                 onClick={() => {
-                  setMessage('E-commerce')
-                  // Submit after setting message
-                  setTimeout(() => {
-                    const form = textareaRef.current?.form
-                    if (form) {
-                      form.requestSubmit()
-                    }
-                  }, 0)
+                  setMessage('Team performance dashboard')
+                  setTimeout(() => textareaRef.current?.form?.requestSubmit(), 0)
                 }}
-                suggestion="E-commerce"
+                suggestion="Team Dashboard"
               />
               <Suggestion
                 onClick={() => {
-                  setMessage('Portfolio')
-                  // Submit after setting message
-                  setTimeout(() => {
-                    const form = textareaRef.current?.form
-                    if (form) {
-                      form.requestSubmit()
-                    }
-                  }, 0)
+                  setMessage('Real-time monitoring dashboard')
+                  setTimeout(() => textareaRef.current?.form?.requestSubmit(), 0)
                 }}
-                suggestion="Portfolio"
-              />
-              <Suggestion
-                onClick={() => {
-                  setMessage('Chat app')
-                  // Submit after setting message
-                  setTimeout(() => {
-                    const form = textareaRef.current?.form
-                    if (form) {
-                      form.requestSubmit()
-                    }
-                  }, 0)
-                }}
-                suggestion="Chat app"
-              />
-              <Suggestion
-                onClick={() => {
-                  setMessage('Calculator')
-                  // Submit after setting message
-                  setTimeout(() => {
-                    const form = textareaRef.current?.form
-                    if (form) {
-                      form.requestSubmit()
-                    }
-                  }, 0)
-                }}
-                suggestion="Calculator"
+                suggestion="Monitoring Dashboard"
               />
             </Suggestions>
           </div>
-
-          {/* Footer */}
           <div className="mt-8 md:mt-16 text-center text-sm text-muted-foreground">
             <p>
               Powered by{' '}
-              <Link
-                href="https://v0-sdk.dev"
+              <a
+                href="https://build.nvidia.com/explore/discover"
+                target="_blank"
+                rel="noopener noreferrer"
                 className="text-foreground hover:underline"
               >
-                v0 SDK
-              </Link>
+                NVIDIA NIM + MiniMax M2.7
+              </a>
             </p>
           </div>
         </div>

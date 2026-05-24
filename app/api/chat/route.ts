@@ -1,215 +1,165 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient, ChatDetail } from 'v0-sdk'
 import { auth } from '@/app/(auth)/auth'
 import {
-  createChatOwnership,
-  createAnonymousChatLog,
-  getChatCountByUserId,
-  getChatCountByIP,
+  createChat,
+  createMessage,
+  getMessagesByChatId,
 } from '@/lib/db/queries'
-import {
-  entitlementsByUserType,
-  anonymousEntitlements,
-} from '@/lib/entitlements'
-import { ChatSDKError } from '@/lib/errors'
 
-// Create v0 client with custom baseUrl if V0_API_URL is set
-const v0 = createClient(
-  process.env.V0_API_URL ? { baseUrl: process.env.V0_API_URL } : {},
-)
+const NVIDIA_API_URL = 'https://integrate.api.nvidia.com/v1/chat/completions'
+const MODEL = 'qwen/qwen3-coder-480b-a35b-instruct'
+const API_KEY = process.env.NVIDIA_API_KEY
 
-function getClientIP(request: NextRequest): string {
-  const forwarded = request.headers.get('x-forwarded-for')
-  const realIP = request.headers.get('x-real-ip')
+const SYSTEM_PROMPT = `You are a dashboard-building AI assistant. You generate production-quality dashboard interfaces.
 
-  if (forwarded) {
-    return forwarded.split(',')[0].trim()
-  }
+When a user asks you to build a dashboard, you MUST respond with:
+1. A clear explanation of what you're building
+2. The complete code (React/TypeScript/Tailwind) inside a triple-backtick code block with the language "tsx"
 
-  if (realIP) {
-    return realIP
-  }
+You can generate dashboard components like:
+- Charts (bar, line, pie, area)
+- Data tables with sorting and filtering
+- KPI cards with metrics
+- Sidebars and navigation
+- Layout grids and responsive designs
+- Dark/light mode support
+- Real-time data displays
 
-  // Fallback to connection remote address or unknown
-  return 'unknown'
-}
+Always use Tailwind CSS for styling. Import from 'react' and 'lucide-react' for icons.
+Make dashboards visually stunning with gradients, shadows, and proper spacing.
+Output ONLY valid React TSX code in the code blocks. Use "use client" directive when needed.
+
+If the user asks something unrelated to dashboards, politely redirect them to dashboard use cases.`
 
 export async function POST(request: NextRequest) {
   try {
     const session = await auth()
-    const { message, chatId, streaming, attachments, projectId } =
-      await request.json()
+    const { message, chatId } = await request.json()
 
     if (!message) {
+      return NextResponse.json({ error: 'Message is required' }, { status: 400 })
+    }
+
+    // Create or reuse chat session
+    let activeChatId = chatId
+    if (!activeChatId && session?.user?.id) {
+      const chat = await createChat({ userId: session.user.id })
+      activeChatId = chat.id
+    }
+
+    // Save user message
+    if (activeChatId) {
+      await createMessage({ chatId: activeChatId, role: 'user', content: message }).catch(() => {})
+    }
+
+    // Build conversation history
+    let messages: Array<{ role: string; content: string }> = [
+      { role: 'system', content: SYSTEM_PROMPT },
+    ]
+
+    if (activeChatId) {
+      try {
+        const { getMessagesByChatId } = await import('@/lib/db/queries')
+        const history = await getMessagesByChatId({ chatId: activeChatId })
+        for (const msg of history) {
+          if (msg.role === 'user' || msg.role === 'assistant') {
+            messages.push({ role: msg.role, content: msg.content })
+          }
+        }
+      } catch {
+        // Fall back to just the current message if DB query fails
+        messages.push({ role: 'user', content: message })
+      }
+    } else {
+      messages.push({ role: 'user', content: message })
+    }
+
+    // Call NVIDIA NIM API with streaming
+    const nvidiaResponse = await fetch(NVIDIA_API_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${API_KEY}`,
+      },
+      body: JSON.stringify({
+        model: MODEL,
+        messages,
+        temperature: 0.7,
+        max_tokens: 4096,
+        stream: true,
+      }),
+    })
+
+    if (!nvidiaResponse.ok) {
+      const errText = await nvidiaResponse.text().catch(() => 'Unknown error')
+      console.error('NVIDIA API error:', nvidiaResponse.status, errText)
       return NextResponse.json(
-        { error: 'Message is required' },
-        { status: 400 },
+        { error: `AI service error: ${nvidiaResponse.status}` },
+        { status: 502 },
       )
     }
 
-    // Rate limiting
-    if (session?.user?.id) {
-      // Authenticated user rate limiting
-      const chatCount = await getChatCountByUserId({
-        userId: session.user.id,
-        differenceInHours: 24,
-      })
-
-      const userType = session.user.type
-      if (chatCount >= entitlementsByUserType[userType].maxMessagesPerDay) {
-        return new ChatSDKError('rate_limit:chat').toResponse()
-      }
-
-      console.log('API request:', {
-        message,
-        chatId,
-        streaming,
-        userId: session.user.id,
-      })
-    } else {
-      // Anonymous user rate limiting
-      const clientIP = getClientIP(request)
-      const chatCount = await getChatCountByIP({
-        ipAddress: clientIP,
-        differenceInHours: 24,
-      })
-
-      if (chatCount >= anonymousEntitlements.maxMessagesPerDay) {
-        return new ChatSDKError('rate_limit:chat').toResponse()
-      }
-
-      console.log('API request (anonymous):', {
-        message,
-        chatId,
-        streaming,
-        ip: clientIP,
-      })
+    if (!nvidiaResponse.body) {
+      return NextResponse.json({ error: 'No response body from AI service' }, { status: 502 })
     }
 
-    console.log('Using baseUrl:', process.env.V0_API_URL || 'default')
+    const nvidiaReader = nvidiaResponse.body.getReader()
+    const decoder = new TextDecoder()
+    const encoder = new TextEncoder()
+    let fullText = ''
 
-    let chat
+    const stream = new ReadableStream({
+      async start(controller) {
+        try {
+          let buffer = ''
+          while (true) {
+            const { done, value } = await nvidiaReader.read()
+            if (done) break
 
-    if (chatId) {
-      // continue existing chat
-      if (streaming) {
-        // Return streaming response for existing chat
-        console.log('Sending streaming message to existing chat:', {
-          chatId,
-          message,
-          responseMode: 'experimental_stream',
-        })
-        chat = await v0.chats.sendMessage({
-          chatId: chatId,
-          message,
-          responseMode: 'experimental_stream',
-          ...(attachments && attachments.length > 0 && { attachments }),
-        })
-        console.log('Streaming message sent to existing chat successfully')
+            buffer += decoder.decode(value, { stream: true })
+            const lines = buffer.split('\n')
+            buffer = lines.pop() || ''
 
-        // Return the stream directly
-        return new Response(chat as ReadableStream<Uint8Array>, {
-          headers: {
-            'Content-Type': 'text/event-stream',
-            'Cache-Control': 'no-cache',
-            Connection: 'keep-alive',
-          },
-        })
-      } else {
-        // Non-streaming response for existing chat
-        chat = await v0.chats.sendMessage({
-          chatId: chatId,
-          message,
-          ...(attachments && attachments.length > 0 && { attachments }),
-        })
-      }
-    } else {
-      // create new chat
-      if (streaming) {
-        // Return streaming response
-        console.log('Creating streaming chat with params:', {
-          message,
-          responseMode: 'experimental_stream',
-        })
-        chat = await v0.chats.create({
-          message,
-          responseMode: 'experimental_stream',
-          ...(attachments && attachments.length > 0 && { attachments }),
-        })
-        console.log('Streaming chat created successfully')
-
-        // Return the stream directly
-        return new Response(chat as ReadableStream<Uint8Array>, {
-          headers: {
-            'Content-Type': 'text/event-stream',
-            'Cache-Control': 'no-cache',
-            Connection: 'keep-alive',
-          },
-        })
-      } else {
-        // Use sync mode
-        console.log('Creating sync chat with params:', {
-          message,
-          responseMode: 'sync',
-        })
-        chat = await v0.chats.create({
-          message,
-          responseMode: 'sync',
-          ...(attachments && attachments.length > 0 && { attachments }),
-        })
-        console.log('Sync chat created successfully')
-      }
-    }
-
-    // Type guard to ensure we have a ChatDetail and not a stream
-    if (chat instanceof ReadableStream) {
-      throw new Error('Unexpected streaming response')
-    }
-
-    const chatDetail = chat as ChatDetail
-
-    // Create ownership mapping or anonymous log for new chat
-    if (!chatId && chatDetail.id) {
-      try {
-        if (session?.user?.id) {
-          // Authenticated user - create ownership mapping
-          await createChatOwnership({
-            v0ChatId: chatDetail.id,
-            userId: session.user.id,
-          })
-          console.log('Chat ownership created:', chatDetail.id)
-        } else {
-          // Anonymous user - log for rate limiting
-          const clientIP = getClientIP(request)
-          await createAnonymousChatLog({
-            ipAddress: clientIP,
-            v0ChatId: chatDetail.id,
-          })
-          console.log('Anonymous chat logged:', chatDetail.id, 'IP:', clientIP)
+            for (const line of lines) {
+              if (line.startsWith('data: ')) {
+                const payload = line.slice(6).trim()
+                if (payload === '[DONE]') continue
+                try {
+                  const parsed = JSON.parse(payload)
+                  const choice = parsed.choices?.[0]
+                  const content = choice?.delta?.content || choice?.text || ''
+                  if (content) {
+                    fullText += content
+                    const event = `data: ${JSON.stringify({ text: content })}\n\n`
+                    controller.enqueue(encoder.encode(event))
+                  }
+                } catch {
+                  // Skip non-JSON lines
+                }
+              }
+            }
+          }
+        } finally {
+          controller.close()
         }
-      } catch (error) {
-        console.error('Failed to create chat ownership/log:', error)
-        // Don't fail the request if database save fails
-      }
-    }
 
-    return NextResponse.json({
-      id: chatDetail.id,
-      demo: chatDetail.demo,
-      messages: chatDetail.messages?.map((msg) => ({
-        ...msg,
-        experimental_content: (msg as any).experimental_content,
-      })),
+        // Save assistant message after streaming completes
+        if (activeChatId && fullText) {
+          await createMessage({ chatId: activeChatId, role: 'assistant', content: fullText }).catch(() => {})
+        }
+      },
+    })
+
+    return new Response(stream, {
+      headers: {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        Connection: 'keep-alive',
+        'X-Chat-Id': activeChatId || '',
+      },
     })
   } catch (error) {
-    console.error('V0 API Error:', error)
-
-    // Log more detailed error information
-    if (error instanceof Error) {
-      console.error('Error message:', error.message)
-      console.error('Error stack:', error.stack)
-    }
-
+    console.error('Chat API Error:', error)
     return NextResponse.json(
       {
         error: 'Failed to process request',
