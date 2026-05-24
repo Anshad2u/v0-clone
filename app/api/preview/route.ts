@@ -17,7 +17,6 @@ function fixMismatchedClosingTags(code: string): string {
   while (i < code.length) {
     const ch = code[i]
 
-    // Skip string literals
     if (ch === '"' || ch === "'" || ch === '`') {
       const quote = ch
       result += quote
@@ -35,7 +34,6 @@ function fixMismatchedClosingTags(code: string): string {
       continue
     }
 
-    // Skip JSX expressions { ... }
     if (ch === '{') {
       let depth = 1
       result += ch
@@ -49,12 +47,9 @@ function fixMismatchedClosingTags(code: string): string {
       continue
     }
 
-    // Handle JSX tags
     if (ch === '<') {
       if (i + 1 < code.length) {
         const next = code[i + 1]
-
-        // Closing tag </...>
         if (next === '/') {
           let j = i + 2
           while (j < code.length && /[\w$]/.test(code[j])) j++
@@ -63,20 +58,16 @@ function fixMismatchedClosingTags(code: string): string {
           const closeEnd = j + 1
 
           if (stack.length > 0 && stack[stack.length - 1] === tagName) {
-            // Correct match - emit and pop
             result += code.substring(i, closeEnd)
             stack.pop()
           } else if (stack.length > 0) {
-            // Mismatched - emit correct closing tag for what's actually open
             const expected = stack.pop()!
             result += '</' + expected + '>'
           }
-          // else: no open tag to close, skip the extra closing tag
           i = closeEnd
           continue
         }
 
-        // Opening tag
         if (/[A-Za-z]/.test(next)) {
           let j = i + 1
           while (j < code.length && /[\w$]/.test(code[j])) j++
@@ -101,8 +92,6 @@ function fixMismatchedClosingTags(code: string): string {
           }
 
           result += code.substring(i, k)
-
-          // NOT void elements in React - push them to stack
           const voidElements = ['br', 'hr', 'img', 'input', 'link', 'meta', 'base', 'col', 'embed', 'param', 'source', 'track', 'wbr']
           if (!selfClosing && !voidElements.includes(tagName.toLowerCase())) {
             stack.push(tagName)
@@ -117,7 +106,6 @@ function fixMismatchedClosingTags(code: string): string {
     i++
   }
 
-  // Auto-close any remaining open tags
   while (stack.length > 0) {
     result += '</' + stack.pop() + '>'
   }
@@ -151,7 +139,6 @@ export async function POST(request: NextRequest) {
 
     code = code.replace(/^export\s+(const|let|var|class|function|interface|type)\s/mg, '$1 ')
     code = code.replace(/^export\s*\{/mg, '')
-
     code = fixMismatchedClosingTags(code)
 
     const imports = new Set<string>()
@@ -196,7 +183,7 @@ root.render(React.createElement(${componentName}));
     return NextResponse.json({ html })
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown compilation error'
-    console.error('Preview compilation error:', message)
+    console.error('Preview compilation error:', message, error)
     return NextResponse.json({ error: message }, { status: 422 })
   }
 }
