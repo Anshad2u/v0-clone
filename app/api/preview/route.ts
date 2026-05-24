@@ -10,111 +10,134 @@ const CDN: Record<string, string> = {
 }
 
 function fixMismatchedClosingTags(code: string): string {
-  const openStack: string[] = []
+  const stack: string[] = []
   let result = ''
   let i = 0
-  const voidTags = new Set(['area','br','col','hr','img','input','link','meta','path','line','rect','circle','ellipse','polyline','polygon','stop'])
 
   while (i < code.length) {
-    // Skip strings
-    if (code[i] === '"' || code[i] === "'") {
-      const q = code[i++]; result += q
-      while (i < code.length && code[i] !== q) {
-        if (code[i] === '\\' && i + 1 < code.length) { result += code[i] + code[i + 1]; i += 2 }
-        else { result += code[i]; i++ }
-      }
-      if (i < code.length) { result += code[i]; i++ }
-      continue
-    }
-    // Skip template literals
-    if (code[i] === '`') {
-      result += code[i++]
-      while (i < code.length && code[i] !== '`') {
-        if (code[i] === '\\' && i + 1 < code.length) { result += code[i] + code[i + 1]; i += 2 }
-        else { result += code[i]; i++ }
-      }
-      if (i < code.length) { result += code[i]; i++ }
-      continue
-    }
-    // Skip JSX expressions
-    if (code[i] === '{') {
-      let depth = 1; result += code[i++]
-      while (i < code.length && depth > 0) {
-        if (code[i] === '{') depth++; else if (code[i] === '}') depth--
-        if (depth > 0) { result += code[i]; i++ } else { i++; break }
-      }
-      continue
-    }
-    // Skip HTML comments
-    if (code[i] === '<' && i + 1 < code.length && code[i + 1] === '!') {
-      const end = code.indexOf('-->', i + 1)
-      const seg = end >= 0 ? code.substring(i, end + 3) : code.substring(i)
-      result += seg; i = end >= 0 ? end + 3 : code.length
-      continue
-    }
+    const ch = code[i]
 
-    // JSX tag
-    if (code[i] === '<' && i + 1 < code.length && /[A-Za-z]/.test(code[i + 1])) {
-      // Get tag name for opening tag detection (needed later)
-      let j = i + 1
-      while (j < code.length && /[\w$]/.test(code[j])) j++
-
-      // Closing tag: extract from position i+2 (after '</')
-      if (code[i + 1] === '/') {
-        let k = i + 2
-        while (k < code.length && /[\w$]/.test(code[k])) k++
-        const closeName = code.substring(i + 2, k)
-        // Find '>'
-        while (k < code.length && code[k] !== '>') k++
-        const closeEnd = k + 1
-
-        if (openStack.length > 0 && openStack[openStack.length - 1] === closeName) {
-          // Correct close tag
-          for (let c = i; c < closeEnd; c++) result += code[c]
-          openStack.pop()
-        } else if (openStack.length > 0) {
-          // Mismatched - fix to expected tag
-          const expected = openStack[openStack.length - 1]!
-          result += '</' + expected + '>'
-          openStack.pop()
-          i = closeEnd
+    // Skip string literals and template literals
+    if (ch === '"' || ch === "'" || ch === '`') {
+      const quote = ch
+      result += quote
+      i++
+      while (i < code.length && code[i] !== quote) {
+        if (code[i] === '\\' && i + 1 < code.length) {
+          result += code[i] + code[i + 1]
+          i += 2
         } else {
-          // No match - skip
-          i = closeEnd
+          result += code[i]
+          i++
         }
-        continue
       }
-
-      // Opening tag
-      const tagName = code.substring(i + 1, j)
-
-      // Find end of tag
-      let depth = 0; let k = j; let selfClose = false
-      while (k < code.length) {
-        if (code[k] === '{') { depth++; k++ }
-        else if (code[k] === '}') { depth--; k++ }
-        else if (depth === 0 && code[k] === '/' && code[k + 1] === '>') { selfClose = true; k += 2; break }
-        else if (depth === 0 && code[k] === '>') { k++; break }
-        else k++
+      if (i < code.length) {
+        result += code[i]
+        i++
       }
-
-      for (let c = i; c < k; c++) result += code[c]
-
-      // Only push non-void, non-self-closing tags
-      if (!selfClose && !voidTags.has(tagName.toLowerCase())) {
-        openStack.push(tagName)
-      }
-
-      i = k
       continue
     }
 
-    result += code[i++]
+    // Skip JSX expressions { ... }
+    if (ch === '{') {
+      let depth = 1
+      result += ch
+      i++
+      while (i < code.length && depth > 0) {
+        if (code[i] === '{') depth++
+        else if (code[i] === '}') depth--
+        if (depth > 0) {
+          result += code[i]
+          i++
+        } else {
+          i++
+          break
+        }
+      }
+      continue
+    }
+
+    // Handle JSX tags
+    if (ch === '<') {
+      // Check if it's a closing tag or opening tag
+      if (i + 1 < code.length) {
+        const next = code[i + 1]
+
+        // Closing tag </...>
+        if (next === '/') {
+          // Extract tag name
+          let j = i + 2
+          while (j < code.length && /[\w$]/.test(code[j])) j++
+          const tagName = code.substring(i + 2, j)
+
+          // Find the closing >
+          while (j < code.length && code[j] !== '>') j++
+          const closeEnd = j + 1
+
+          // Check stack for matching open tag
+          if (stack.length > 0 && stack[stack.length - 1] === tagName) {
+            // Correct match
+            result += code.substring(i, closeEnd)
+            stack.pop()
+          } else if (stack.length > 0) {
+            // Mismatched - fix it
+            const expected = stack.pop()!
+            result += '</' + expected + '>'
+            i = closeEnd
+          } else {
+            // No match - skip it
+            i = closeEnd
+          }
+          continue
+        }
+
+        // Opening tag - check if it's JSX/XML
+        if (/[A-Za-z]/.test(next)) {
+          // Extract tag name
+          let j = i + 1
+          while (j < code.length && /[\w$]/.test(code[j])) j++
+          const tagName = code.substring(i + 1, j)
+
+          // Find end of tag
+          let depth = 0
+          let k = j
+          let selfClosing = false
+          while (k < code.length) {
+            if (code[k] === '{') { depth++; k++ }
+            else if (code[k] === '}') { depth--; k++ }
+            else if (depth === 0 && code[k] === '/' && code[k + 1] === '>') {
+              selfClosing = true
+              k += 2
+              break
+            }
+            else if (depth === 0 && code[k] === '>') {
+              k++
+              break
+            }
+            else k++
+          }
+
+          result += code.substring(i, k)
+
+          // Push to stack if not self-closing and not a void element
+          const voidElements = ['area','br','col','hr','img','input','link','meta','path',
+                               'line','rect','circle','ellipse','polyline','polygon','stop']
+          if (!selfClosing && !voidElements.includes(tagName.toLowerCase())) {
+            stack.push(tagName)
+          }
+          i = k
+          continue
+        }
+      }
+    }
+
+    result += ch
+    i++
   }
 
   // Close any remaining open tags
-  while (openStack.length > 0) {
-    result += '</' + openStack.pop() + '>'
+  while (stack.length > 0) {
+    result += '</' + stack.pop() + '>'
   }
 
   return result
@@ -130,58 +153,56 @@ export async function POST(request: NextRequest) {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const esbuild = require('esb' + 'uild')
 
-    let code = rawCode
+    // Strip "use client"
+    let code = rawCode.replace(/"use client"\s*;\s*/g, '')
 
-    // Remove "use client"
-    code = code.replace(/^["']use client["'];?$/gm, '')
-
-    // Capture and replace export default
+    // Extract and handle export default
     let componentName = 'App'
-    code = code.replace(/export default function (\w+)/, (_, name) => {
-      componentName = name
-      return `function ${name}`
-    })
-    code = code.replace(/export default (\w+)/g, (_, name) => {
-      componentName = name
-      return ''
-    })
-
-    // Strip remaining export keywords
-    code = code.replace(/^export (const|let|var|class|function|interface|type) /gm, '$1 ')
-    code = code.replace(/^export \{/gm, '')
-
-    // Fix mismatched closing tags before esbuild sees them
-    code = fixMismatchedClosingTags(code)
-
-    // Collect import specifiers for importmap
-    const importSpecs = new Set<string>()
-    const importRe = /from\s+['"]([^'"]+)['"]/g
-    let match
-    while ((match = importRe.exec(code)) !== null) {
-      const spec = match[1]
-      if (!spec.startsWith('.')) importSpecs.add(spec)
+    const exportDefaultFn = code.match(/export\s+default\s+function\s+(\w+)/)
+    if (exportDefaultFn) {
+      componentName = exportDefaultFn[1]
+      code = code.replace(/export\s+default\s+function\s+\w+/, 'function ' + componentName)
+    } else {
+      const exportDefaultExpr = code.match(/export\s+default\s+(\w+)/)
+      if (exportDefaultExpr) {
+        componentName = exportDefaultExpr[1]
+        code = code.replace(/export\s+default\s+\w+/, '')
+      }
     }
 
-    // Build importmap
+    // Strip other exports
+    code = code.replace(/^export\s+(const|let|var|class|function|interface|type)\s/mg, '$1 ')
+    code = code.replace(/^export\s*\{/mg, '')
+
+    // Fix JSX tag mismatches
+    code = fixMismatchedClosingTags(code)
+
+    // Collect imports for importmap
+    const imports = new Set<string>()
+    const importRegex = /from\s+['"]([^'"]+)['"]/g
+    let match
+    while ((match = importRegex.exec(code)) !== null) {
+      const spec = match[1]
+      if (!spec.startsWith('.')) imports.add(spec)
+    }
+
     const importMap: Record<string, string> = {
       'react': CDN['react'],
       'react-dom/client': CDN['react-dom/client'],
       'react/jsx-runtime': CDN['react/jsx-runtime'],
-      'react/jsx-dev-runtime': CDN['react/jsx-dev-runtime'],
     }
-    for (const spec of importSpecs) {
+    for (const spec of imports) {
       const pkg = spec.split('/')[0]
       importMap[spec] = CDN[spec] || CDN[pkg] || `https://esm.sh/${pkg}@latest`
     }
 
     const result = await esbuild.transform(code, { loader: 'tsx', jsx: 'automatic' })
-    const importMapJson = JSON.stringify(importMap, null, 2)
 
     const html = `<!DOCTYPE html>
 <html lang="en">
 <head>
   <script src="https://cdn.tailwindcss.com"></script>
-  <script type="importmap">${importMapJson}</script>
+  <script type="importmap">${JSON.stringify(importMap, null, 2)}</script>
   <style>*, *::before, *::after { box-sizing: border-box; } body { margin: 0; font-family: system-ui, -apple-system, sans-serif; } #root { min-height: 100vh; }</style>
 </head>
 <body>
