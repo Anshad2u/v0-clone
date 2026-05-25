@@ -204,7 +204,7 @@ export function PreviewPanel({
           <WebPreviewBody
             key={`preview-${refreshKey}`}
             srcDoc={previewHtml}
-            sandbox="allow-scripts"
+            sandbox="allow-scripts allow-same-origin"
             title="Dashboard Preview"
           />
         ) : previewState === 'loading' ? (
