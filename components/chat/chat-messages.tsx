@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useRef, useEffect, useState, useCallback } from 'react'
+import React, { useRef } from 'react'
 import { Message, MessageContent } from '@/components/ai-elements/message'
 import {
   Conversation,
@@ -29,12 +29,10 @@ export function ChatMessages({
   isLoadingChat,
   streamingContent,
 }: ChatMessagesProps) {
-  const messagesEndRef = useRef<HTMLDivElement>(null)
-
-  // Auto-scroll to bottom when new content arrives
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [chatHistory, streamingContent])
+  // No manual scrollIntoView here — the Conversation wrapper uses
+  // use-stick-to-bottom which only auto-scrolls when the user is at
+  // the bottom. If the user scrolls up (e.g. to close a toggle),
+  // stick-to-bottom stops forcing scroll.
 
   if (chatHistory.length === 0 && !isLoading && !isLoadingChat) {
     return (
@@ -76,8 +74,6 @@ export function ChatMessages({
             <Loader size={16} className="text-gray-500 dark:text-gray-400" />
           </div>
         )}
-
-        <div ref={messagesEndRef} />
       </ConversationContent>
     </Conversation>
   )

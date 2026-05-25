@@ -290,23 +290,35 @@ export async function POST(request: NextRequest) {
     // Fix unbalanced HTML closing tags
     code = fixMismatchedClosingTags(code)
 
-    // Collect imports for importmap
+    // Build import map using only known CDN-backed packages.
+    // Skip local imports (./, ../) and scoped project imports (@/) since
+    // esm.sh can't serve them.
+    const KNOWN_PACKAGES = new Set([
+      'react', 'react-dom', 'react-dom/client', 'react-dom/server',
+      'react/jsx-runtime', 'react/jsx-dev-runtime',
+      'lucide-react', 'recharts',
+    ])
     const imports = new Set<string>()
     const importRegex = /from\s+['"]([^'"]+)['"]/g
     let match
     while ((match = importRegex.exec(code)) !== null) {
       const spec = match[1]
-      if (!spec.startsWith('.')) imports.add(spec)
+      // Skip relative imports and scoped project paths
+      if (spec.startsWith('.') || spec.startsWith('@/')) continue
+      imports.add(spec)
     }
 
+    // Always include the runtime essentials
     const importMap: Record<string, string> = {
       'react': CDN['react'],
       'react-dom/client': CDN['react-dom/client'],
       'react/jsx-runtime': CDN['react/jsx-runtime'],
     }
     for (const spec of imports) {
-      const pkg = spec.split('/')[0]
-      importMap[spec] = CDN[spec] || CDN[pkg] || `https://esm.sh/${pkg}@latest`
+      if (KNOWN_PACKAGES.has(spec)) {
+        const cdnUrl = CDN[spec]
+        if (cdnUrl) importMap[spec] = cdnUrl
+      }
     }
 
     const result = await esbuild.transform(code, { loader: 'tsx', jsx: 'automatic' })
