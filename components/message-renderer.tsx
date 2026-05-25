@@ -1,6 +1,7 @@
 import React from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import { CodeBlock, CodeBlockCopyButton } from '@/components/ai-elements/code-block'
 import type { Components } from 'react-markdown'
 
 // Custom markdown renderers for dashboard code display
@@ -17,19 +18,12 @@ const markdownComponents: Components = {
         </code>
       )
     }
+    const language = className?.replace('language-', '') || 'code'
+    const codeContent = String(children).replace(/\n$/, '')
     return (
-      <div className="relative group my-4">
-        <div className="flex items-center justify-between bg-gray-100 dark:bg-gray-800 rounded-t-lg border border-gray-200 dark:border-gray-700 px-4 py-2">
-          <span className="text-xs text-gray-500 dark:text-gray-400 font-mono">
-            {className?.replace('language-', '') || 'code'}
-          </span>
-        </div>
-        <pre className="bg-gray-50 dark:bg-gray-900 rounded-b-lg border-x border-b border-gray-200 dark:border-gray-700 p-4 overflow-x-auto">
-          <code className={`${className} text-sm leading-relaxed`} {...props}>
-            {children}
-          </code>
-        </pre>
-      </div>
+      <CodeBlock code={codeContent} language={language} defaultOpen={false}>
+        <CodeBlockCopyButton />
+      </CodeBlock>
     )
   },
   pre({ children }) {
