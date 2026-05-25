@@ -57,6 +57,19 @@ function fixMismatchedClosingTags(code: string): string {
         let j = i + 2
         while (j < code.length && /[\w$]/.test(code[j])) j++
         const tagName = code.substring(i + 2, j)
+
+        // Skip non-HTML closing tags (React components like </BarChart>,
+        // </ResponsiveContainer>). Opening uppercase tags are also skipped
+        // (not pushed to stack), so processing them here would misidentify
+        // them as "mismatched" and replace them with </div>.
+        if (!HTML_TAG_RE.test(tagName)) {
+          while (j < code.length && code[j] !== '>') j++
+          const closeEnd = j + 1
+          result += code.substring(i, closeEnd)
+          i = closeEnd
+          continue
+        }
+
         while (j < code.length && code[j] !== '>') j++
         const closeEnd = j + 1
 
