@@ -237,6 +237,11 @@ export function HomeClient() {
         } catch {}
         throw new Error(errMsg)
       }
+    // Update chat ID if server returned a new one
+    const newChatId = response.headers.get('X-Chat-Id')
+    if (newChatId) {
+      setCurrentChatId(newChatId)
+    }
 
       await processSSEStream(response, currentChatId)
     } catch (error) {
