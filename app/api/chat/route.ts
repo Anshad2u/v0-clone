@@ -93,17 +93,26 @@ export async function POST(request: NextRequest) {
     if (!message) {
       return NextResponse.json({ error: 'Message is required' }, { status: 400 })
     }
-
-    // Create or reuse chat session
+    // Create or reuse chat session — always generates a chatId
+    // so the frontend can send follow-up messages even without auth/DB.
+    // Without Postgres, DB saves silently fail → no persistence, but
+    // the request-response round trip still works.
     let activeChatId = chatId
-    if (!activeChatId && session?.user?.id) {
-      const chat = await createChat({ userId: session.user.id })
-      activeChatId = chat.id
+    if (!activeChatId) {
+      activeChatId = crypto.randomUUID()
+      if (session?.user?.id) {
+        // Persist to DB when auth is available
+        try {
+          const chat = await createChat({ userId: session.user.id })
+          activeChatId = chat.id
+        } catch {
+          // DB unavailable — use the generated UUID for this session
+        }
+      }
     }
-
-    // Save user message
-    if (activeChatId) {
-      await createMessage({ chatId: activeChatId, role: 'user', content: message }).catch(() => {})
+    // Save user message to DB (best-effort)
+    if (session?.user?.id && activeChatId) {
+      createMessage({ chatId: activeChatId, role: 'user', content: message }).catch(() => {})
     }
 
     // Build conversation history
