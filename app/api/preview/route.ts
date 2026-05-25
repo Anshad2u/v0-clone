@@ -9,6 +9,163 @@ const CDN: Record<string, string> = {
   'recharts': 'https://esm.sh/recharts@3.8.1',
 }
 
+// Pre-built dashboard templates for instant rendering (compiled once, cached)
+const TEMPLATES: Record<string, { name: string; code: string }> = {}
+
+const CAR_DASHBOARD_CODE = `import React from 'react';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import { Car, TrendingUp, Wrench, MapPin } from 'lucide-react';
+
+const CarPerformance = () => {
+  const data = [
+    { name: 'Jan', mpg: 28, speed: 65, range: 400 },
+    { name: 'Feb', mpg: 30, speed: 68, range: 420 },
+    { name: 'Mar', mpg: 32, speed: 70, range: 440 },
+    { name: 'Apr', mpg: 35, speed: 72, range: 460 },
+    { name: 'May', mpg: 33, speed: 71, range: 450 },
+    { name: 'Jun', mpg: 36, speed: 74, range: 480 },
+  ];
+  return React.createElement('div', { className: 'w-full h-full bg-gradient-to-br from-gray-900 to-gray-800 p-6' },
+    React.createElement('div', { className: 'flex items-center gap-3 mb-6' },
+      React.createElement(Car, { className: 'text-blue-400', size: 24 }),
+      React.createElement('h2', { className: 'text-xl font-bold text-white' }, 'Car Performance Dashboard'),
+    ),
+    React.createElement('div', { className: 'grid grid-cols-4 gap-4 mb-6' },
+      ...[
+        { label: 'Fuel Efficiency', value: '32.4 MPG', icon: 'TrendingUp', color: 'text-blue-400' },
+        { label: 'Engine Health', value: 'Excellent', icon: 'Wrench', color: 'text-green-400' },
+        { label: 'Range', value: '420 mi', icon: 'MapPin', color: 'text-amber-400' },
+        { label: 'Avg Speed', value: '70 mph', icon: 'Car', color: 'text-purple-400' },
+      ].map(kpi => React.createElement('div', { className: 'bg-gray-800/50 backdrop-blur rounded-xl p-4 border border-gray-700' },
+        React.createElement('div', { className: 'flex items-center gap-2 mb-2' },
+          React.createElement(TrendingUp, { className: kpi.color, size: 16 }),
+          React.createElement('span', { className: 'text-sm font-semibold text-gray-300' }, kpi.label),
+        ),
+        React.createElement('div', { className: 'text-2xl font-bold text-white' }, kpi.value),
+      )),
+    ),
+    React.createElement('div', { className: 'h-64 w-full' },
+      React.createElement(ResponsiveContainer, { width: '100%', height: '100%' },
+        React.createElement(BarChart, { data },
+          React.createElement(CartesianGrid, { strokeDasharray: '3 3', stroke: '#444' }),
+          React.createElement(XAxis, { dataKey: 'name', stroke: '#94a3b8' }),
+          React.createElement(YAxis, { stroke: '#94a3b8' }),
+          React.createElement(Tooltip, { contentStyle: { backgroundColor: 'rgba(30, 41, 59, 0.8)', borderColor: '#334155', borderRadius: '8px' }, itemStyle: { color: '#f1f5f9' }, labelStyle: { color: '#e2e8f0' } }),
+          React.createElement(Legend, null),
+          React.createElement(Bar, { dataKey: 'mpg', fill: '#3b82f6', name: 'MPG', radius: [4, 4, 0, 0] }),
+          React.createElement(Bar, { dataKey: 'speed', fill: '#10b981', name: 'Speed (mph)', radius: [4, 4, 0, 0] }),
+          React.createElement(Bar, { dataKey: 'range', fill: '#8b5cf6', name: 'Range (miles)', radius: [4, 4, 0, 0] }),
+        ),
+      ),
+    ),
+  );
+};
+export default CarPerformance;`
+
+const KPI_GRID_CODE = `import React from 'react';
+import { TrendingUp, Users, ShoppingCart, DollarSign } from 'lucide-react';
+
+const KPIGrid = () => {
+  const ICONS: Record<string, any> = { TrendingUp, Users, ShoppingCart, DollarSign }
+  const kpis = [
+    { label: 'Total Revenue', value: '$45,231', change: '+20.1%', icon: 'DollarSign', color: 'bg-blue-500' },
+    { label: 'Subscriptions', value: '1,234', change: '+19%', icon: 'Users', color: 'bg-green-500' },
+    { label: 'Sales', value: '23,234', change: '+5.4%', icon: 'ShoppingCart', color: 'bg-purple-500' },
+    { label: 'Active Users', value: '12,345', change: '+12.5%', icon: 'TrendingUp', color: 'bg-yellow-500' },
+  ];
+  return React.createElement('div', { className: 'min-h-screen bg-gray-100 dark:bg-gray-900 p-8' },
+    React.createElement('h1', { className: 'text-3xl font-bold text-gray-900 dark:text-white mb-8' }, 'Dashboard Overview'),
+    React.createElement('div', { className: 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6' },
+      ...kpis.map(kpi => React.createElement('div', { className: 'bg-white dark:bg-gray-800 rounded-2xl shadow-lg p-6 hover:shadow-xl transition-shadow', key: kpi.label },
+        React.createElement('div', { className: 'flex items-center gap-4' },
+          React.createElement('div', { className: kpi.color + ' p-3 rounded-lg' },
+            React.createElement(ICONS[kpi.icon], { className: 'h-6 w-6 text-white' }),
+          ),
+          React.createElement('div', null,
+            React.createElement('p', { className: 'text-sm text-gray-500 dark:text-gray-400' }, kpi.label),
+            React.createElement('p', { className: 'text-2xl font-bold text-gray-900 dark:text-white mt-1' }, kpi.value),
+            React.createElement('p', { className: 'text-sm text-green-500 mt-2' }, kpi.change),
+          ),
+        ),
+      )),
+    ),
+  );
+};
+export default KPIGrid;`
+
+TEMPLATES['car-dashboard'] = { name: 'Car Performance Dashboard', code: CAR_DASHBOARD_CODE }
+TEMPLATES['kpi-grid'] = { name: 'KPI Metrics Grid', code: KPI_GRID_CODE }
+
+// Template compilation cache
+const templateCache = new Map<string, string>()
+const compilingTemplates = new Set<string>()
+/**
+ * Compile and cache a template's esbuild output (first call compiles, rest instant).
+ */
+async function getTemplateTransformed(name: string, esbuild: any): Promise<string> {
+  const cached = templateCache.get(name)
+  if (cached) return cached
+  const template = TEMPLATES[name]
+  if (!template) return ''
+  if (compilingTemplates.has(name)) {
+    while (compilingTemplates.has(name)) await new Promise(r => setTimeout(r, 50))
+    return templateCache.get(name) || ''
+  }
+  compilingTemplates.add(name)
+  try {
+    const result = await esbuild.transform(template.code, { loader: 'tsx', jsx: 'automatic' })
+    templateCache.set(name, result.code)
+    return result.code
+  } finally {
+    compilingTemplates.delete(name)
+  }
+}
+/**
+ * Build preview HTML for a pre-built template (instant after first compilation).
+ */
+async function buildTemplatePreview(name: string, esbuild: any): Promise<string> {
+  const template = TEMPLATES[name]
+  if (!template) throw new Error('Template not found: ' + name)
+  const transformedCode = await getTemplateTransformed(name, esbuild)
+  // Extract component name from export default
+  const compMatch = template.code.match(/export\s+default\s+(\w+)/)
+  const compName = compMatch ? compMatch[1] : 'App'
+  // Strip default React import (boilerplate provides it)
+  const finalCode = transformedCode
+    .replace(/^import\s+React\s+from\s+['"]react['"]\s*;?\s*\n?/gm, '')
+    .replace(/^import\s+React,\s*\{([^}]*)\}\s+from\s+['"]react['"]\s*;?\s*\n?/gm, 'import { $1 } from "react"\n')
+    .replace(/^import\s+.*?from\s+['"]react-dom\/client['"]\s*;?\s*\n?/gm, '')
+  const importMap: Record<string, string> = {
+    'react': CDN['react'],
+    'react-dom/client': CDN['react-dom/client'],
+    'react/jsx-runtime': CDN['react/jsx-runtime'],
+  }
+  for (const [spec, url] of Object.entries(CDN)) {
+    if (!['react', 'react-dom/client', 'react/jsx-runtime', 'react/jsx-dev-runtime'].includes(spec)) {
+      importMap[spec] = url
+    }
+  }
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <script type="importmap">${JSON.stringify({ imports: importMap }, null, 2)}</script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>*,*::before,*::after{box-sizing:border-box}body{margin:0;font-family:system-ui,-apple-system,sans-serif;overflow-y:auto}#root{min-height:100vh;overflow-y:auto}</style>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="module">
+import React from 'react';
+import { createRoot } from 'react-dom/client';
+${finalCode}
+const root = createRoot(document.getElementById('root'));
+root.render(React.createElement(${compName}));
+</script>
+</body>
+</html>`
+}
+
+
 // Only track HTML elements (lowercase) — AI commonly mismatches these.
 // TypeScript generics like <Props>, Record<K,V> are uppercase-starting and
 // are SKIPPED to avoid mangling valid type syntax.
@@ -332,9 +489,24 @@ function hoistComponent(code: string, componentName: string): string {
 }
 
 export async function POST(request: NextRequest) {
-  const { code: rawCode } = await request.json()
+  const body = await request.json()
+  const rawCode = body.code as string | undefined
+  const templateName = body.template as string | undefined
+
+  // Template mode: serve pre-built cached template (instant after first compile)
+  if (templateName && TEMPLATES[templateName]) {
+    try {
+      const esbuild = require('esb' + 'uild')
+      const html = await buildTemplatePreview(templateName, esbuild)
+      return NextResponse.json({ html })
+    } catch (e: any) {
+      return NextResponse.json({ error: e.message }, { status: 404 })
+    }
+  }
+
+  // Code mode: compile AI-generated code
   if (!rawCode || typeof rawCode !== 'string') {
-    return NextResponse.json({ error: 'Code is required' }, { status: 400 })
+    return NextResponse.json({ error: 'Code or template is required' }, { status: 400 })
   }
 
   try {
@@ -421,7 +593,7 @@ export async function POST(request: NextRequest) {
 <head>
   <script type="importmap">${JSON.stringify({ imports: importMap }, null, 2)}</script>
   <script src="https://cdn.tailwindcss.com"></script>
-  <style>*, *::before, *::after { box-sizing: border-box; } body { margin: 0; font-family: system-ui, -apple-system, sans-serif; } #root { min-height: 100vh; }</style>
+  <style>*, *::before, *::after { box-sizing: border-box; } body { margin: 0; font-family: system-ui, -apple-system, sans-serif; overflow-y: auto; } #root { min-height: 100vh; overflow-y: auto; }</style>
 </head>
 <body>
   <div id="root"></div>
@@ -441,4 +613,12 @@ root.render(React.createElement(${componentName}));
     console.error('Preview compilation error:', message, error)
     return NextResponse.json({ error: message }, { status: 422 })
   }
+}
+
+export async function GET() {
+  const list = Object.entries(TEMPLATES).map(([id, t]) => ({
+    id,
+    name: t.name,
+  }))
+  return NextResponse.json({ templates: list })
 }
