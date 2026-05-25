@@ -61,6 +61,17 @@ export function PreviewPanel({
   const [previewHtml, setPreviewHtml] = useState<string | null>(null)
   const [previewError, setPreviewError] = useState<string | null>(null)
   const [lastCompiled, setLastCompiled] = useState<string>('')
+  const [loadingTemplate, setLoadingTemplate] = useState<string | null>(null)
+  const [templates, setTemplates] = useState<{id: string; name: string}[]>([])
+  const templateLoadedRef = useRef(false)
+
+  // Fetch available templates on mount
+  useEffect(() => {
+    fetch('/api/preview')
+      .then(r => r.json())
+      .then(d => { if (d.templates) setTemplates(d.templates); })
+      .catch(() => {})
+  }, [])
   const abortRef = useRef<AbortController | null>(null)
 
   // Combine streaming content with the latest assistant message
@@ -80,11 +91,16 @@ export function PreviewPanel({
 
   useEffect(() => {
     if (!latestCode) {
-      setPreviewState('idle')
-      setPreviewHtml(null)
-      setPreviewError(null)
+      // Don't reset if a template preview is currently loaded
+      if (!templateLoadedRef.current) {
+        setPreviewState('idle')
+        setPreviewHtml(null)
+        setPreviewError(null)
+      }
       return
     }
+    // New AI-generated code available — clear the template flag
+    templateLoadedRef.current = false
 
     // Skip if this code was already successfully compiled
     if (latestCode === lastCompiled) return
@@ -143,6 +159,35 @@ export function PreviewPanel({
     }
   }, [])
 
+
+  const handleLoadTemplate = useCallback(async (templateId: string) => {
+    setLoadingTemplate(templateId)
+    setPreviewState('loading')
+    setPreviewError(null)
+    templateLoadedRef.current = true
+    try {
+      const res = await fetch('/api/preview', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ template: templateId }),
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: 'Template load failed' }))
+        setPreviewState('error')
+        setPreviewError(err.error || `HTTP ${res.status}`)
+        return
+      }
+      const data = await res.json()
+      setPreviewHtml(data.html)
+      setPreviewState('ready')
+      setLastCompiled(templateId)
+    } catch (err) {
+      setPreviewState('error')
+      setPreviewError((err as Error).message || 'Template load failed')
+    } finally {
+      setLoadingTemplate(null)
+    }
+  }, [])
   const handleRefresh = useCallback(() => {
     if (previewHtml) {
       // Force iframe remount by bumping key
@@ -257,9 +302,25 @@ export function PreviewPanel({
                 Live Dashboard Preview
               </p>
               <p className="text-xs text-gray-700/50 dark:text-gray-200/50 mt-1.5 leading-relaxed">
-                Ask the AI to build a dashboard. When it generates code, the live
-                preview will appear here.
+                Ask the AI to build a dashboard, or try a pre-built template:
               </p>
+              <div className="flex flex-wrap justify-center gap-2 mt-4">
+                {templates.map((t) => (
+                  <button
+                    key={t.id}
+                    onClick={() => handleLoadTemplate(t.id)}
+                    disabled={loadingTemplate !== null}
+                    className={cn(
+                      'px-3 py-1.5 text-xs font-medium rounded-lg border transition-all duration-150',
+                      loadingTemplate === t.id
+                        ? 'bg-blue-50 dark:bg-blue-950/30 border-blue-200 dark:border-blue-800 text-blue-600 dark:text-blue-400 animate-pulse'
+                        : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:bg-blue-50 dark:hover:bg-blue-950/20 hover:border-blue-200 dark:hover:border-blue-800 hover:text-blue-600 dark:hover:text-blue-400'
+                    )}
+                  >
+                    {loadingTemplate === t.id ? 'Loading...' : t.name}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
         )}
