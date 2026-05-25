@@ -19,8 +19,13 @@ CRITICAL — Every code block you output must be COMPLETE and VALID TSX:
 - Wrap ALL JSX in a single root element inside the return statement.
 - The code must be parseable by esbuild without errors.
 
-ONLY import from these exact packages: 'react', 'lucide-react', 'recharts'.
-- Do NOT import from react-dom, react-dom/client, or any other package.
+Include ALL necessary import statements INSIDE the code block for every icon and chart component you reference:
+
+import { TrendingUp, Users, ShoppingCart, DollarSign, BarChart3, Activity, ArrowUp, ArrowDown, Check, Clock, Download, Eye, Filter, Home, Info, Menu, MoreHorizontal, Search, Settings, Star, Trash, X } from 'lucide-react';
+import { BarChart, LineChart, PieChart, AreaChart, Bar, Line, Pie, Area, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell } from 'recharts';
+
+- Do NOT add imports for react-dom, react-dom/client, or any package not listed above.
+- Do NOT generate "use client" — it causes duplicate import errors in preview.
 - Do NOT import from shadcn/ui, @/components, @radix-ui, or any local/scoped path.
 - Only use these recharts exports: BarChart, LineChart, PieChart, AreaChart, Bar, Line, Pie, Area,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell.
@@ -29,10 +34,9 @@ ONLY import from these exact packages: 'react', 'lucide-react', 'recharts'.
   Activity, ArrowUp, ArrowDown, Check, Clock, Download, Eye, Filter, Home, Info,
   Menu, MoreHorizontal, Search, Settings, Star, Trash, X.
   Do NOT invent icon names.
-- DO NOT generate "use client" or react-dom imports — they cause duplicate import errors in preview.
 - Always use Tailwind CSS classes for styling (loaded via CDN).
 - The visual must render standalone in a single root <div>. No layout chrome, sidebar, header, or nav.
-- Output ONLY the React TSX code in a triple-backtick tsx block. No explanatory text outside it.
+Output a complete TSX code block inside triple backticks. The code block MUST include import statements at the top, the component function, and export default. No text outside the code block.
 - Make it visually stunning — gradients, shadows, spacing, dark-mode awareness with dark: Tailwind variants.
 - If the user asks for multiple visuals, respond with ONE and say you can add more on request.
 - CRITICAL: Only use component names that actually exist in the packages listed above. Do not invent or guess component names. If unsure about an API, use only basic patterns you are certain work.
@@ -68,9 +72,19 @@ AVAILABLE TEMPLATES — Use these as starting points when the user asks for a da
      </div>
    </div>
 
-WHEN THE USER ASKS FOR A DASHBOARD: Start from the template above. Only change data values (array contents), colors, title text, and KPI labels/icons. Keep the exact same structure, grid layout, shadow/border classes, and component hierarchy. Do NOT restructure or rewrite from scratch. Just swap the data values and text.
+CRITICAL — DASHBOARD REQUEST RULES:
 
-If the user asks for something that doesn't match either template, you may generate code from scratch, but prefer adapting a template whenever possible.`
+When the user asks for a dashboard with KPI cards and a chart:
+1. You MUST use exactly Template 1 (KPI Metrics Grid) layout: a 4-column grid of stats cards (bg-white rounded-2xl shadow-lg p-6) with a flex row showing icon in a colored rounded box + label/value/change text.
+2. For chart section: re-use the ResponsiveContainer > BarChart structure from Template 2, but keep Template 1's light theme (bg-gray-100).
+3. Only swap: the data array values, the title text, the KPI labels/values/colors, and which icon appears in each card.
+4. Do NOT change: the grid column layout, the card shadow/rounded classes, the icon-box styling, or the flex ordering inside each card.
+5. Include ALL imports at the top of the code block — the exact import lines shown above.
+6. The component name must be exported: export default Dashboard
+
+If the user asks for a single chart (no KPI cards), use Template 2's chart layout: ResponsiveContainer > BarChart with CartesianGrid, XAxis, YAxis, Tooltip, Legend, Bar.
+
+If the request genuinely cannot be served by either template, you may generate from scratch — but this should be rare. Most dashboard requests fit the KPI grid + chart pattern.`
 export async function POST(request: NextRequest) {
   try {
     const session = await auth()
