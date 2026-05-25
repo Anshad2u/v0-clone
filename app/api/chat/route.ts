@@ -35,8 +35,42 @@ ONLY import from these exact packages: 'react', 'lucide-react', 'recharts'.
 - Output ONLY the React TSX code in a triple-backtick tsx block. No explanatory text outside it.
 - Make it visually stunning — gradients, shadows, spacing, dark-mode awareness with dark: Tailwind variants.
 - If the user asks for multiple visuals, respond with ONE and say you can add more on request.
-- CRITICAL: Only use component names that actually exist in the packages listed above. Do not invent or guess component names. If unsure about an API, use only basic patterns you are certain work.`
+- CRITICAL: Only use component names that actually exist in the packages listed above. Do not invent or guess component names. If unsure about an API, use only basic patterns you are certain work.
 
+AVAILABLE TEMPLATES — Use these as starting points when the user asks for a dashboard:
+
+1) KPI Metrics Grid — 4-card grid with icon, label, value, change%. Template layout:
+   <div className="min-h-screen bg-gray-100 p-8">
+     <h1> Dashboard Overview </h1>
+     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+       {kpis.map(kpi => <div className="bg-white rounded-2xl shadow-lg p-6">
+         <div className="flex items-center gap-4">
+           <div className={kpi.color + ' p-3 rounded-lg'}> <Icon className="h-6 w-6 text-white" /> </div>
+           <div> <p>{kpi.label}</p> <p className="text-2xl font-bold">{kpi.value}</p> <p className="text-sm text-green-500">{kpi.change}</p> </div>
+         </div>
+       </div>)}
+     </div>
+   </div>
+
+2) Car Performance Dashboard — bar chart with 4 KPI stat cards. Template layout:
+   <div className="w-full h-full bg-gradient-to-br from-gray-900 to-gray-800 p-6">
+     <div className="flex items-center gap-3 mb-6"> <Icon /> <h2> Dashboard Title </h2> </div>
+     <div className="grid grid-cols-4 gap-4 mb-6">
+       {kpis.map(kpi => <div className="bg-gray-800/50 backdrop-blur rounded-xl p-4 border border-gray-700">
+         <div className="flex items-center gap-2 mb-2"> <Icon /> <span>{kpi.label}</span> </div>
+         <div className="text-2xl font-bold text-white">{kpi.value}</div>
+       </div>)}
+     </div>
+     <div className="h-64 w-full">
+       <ResponsiveContainer>
+         <BarChart> <CartesianGrid /> <XAxis /> <YAxis /> <Tooltip /> <Legend /> <Bar /> </BarChart>
+       </ResponsiveContainer>
+     </div>
+   </div>
+
+WHEN THE USER ASKS FOR A DASHBOARD: Start from the template above. Only change data values (array contents), colors, title text, and KPI labels/icons. Keep the exact same structure, grid layout, shadow/border classes, and component hierarchy. Do NOT restructure or rewrite from scratch. Just swap the data values and text.
+
+If the user asks for something that doesn't match either template, you may generate code from scratch, but prefer adapting a template whenever possible.`
 export async function POST(request: NextRequest) {
   try {
     const session = await auth()
