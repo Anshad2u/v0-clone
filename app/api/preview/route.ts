@@ -323,6 +323,16 @@ export async function POST(request: NextRequest) {
 
     const result = await esbuild.transform(code, { loader: 'tsx', jsx: 'automatic' })
 
+    // Strip import lines from transformed code that the template already
+    // provides (react, react-dom/client) to avoid "redeclaration of import".
+    let transformedCode = result.code
+    transformedCode = transformedCode.replace(
+      /^import\s+.*?from\s+['"]react['"]\s*;?\s*\n?/gm, ''
+    )
+    transformedCode = transformedCode.replace(
+      /^import\s+.*?from\s+['"]react-dom\/client['"]\s*;?\s*\n?/gm, ''
+    )
+
     const html = `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -335,7 +345,7 @@ export async function POST(request: NextRequest) {
   <script type="module">
 import React from 'react';
 import { createRoot } from 'react-dom/client';
-${result.code}
+${transformedCode}
 const root = createRoot(document.getElementById('root'));
 root.render(React.createElement(${componentName}));
 </script>
