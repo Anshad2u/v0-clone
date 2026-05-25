@@ -4,6 +4,27 @@ import remarkGfm from 'remark-gfm'
 import { CodeBlock, CodeBlockCopyButton } from '@/components/ai-elements/code-block'
 import type { Components } from 'react-markdown'
 
+/** Extract a component/function name from TSX code to use as the block title. */
+function extractCodeTitle(code: string): string | undefined {
+  const lines = code.split('\n')
+  for (const line of lines) {
+    const trimmed = line.trim()
+    // export default function Name
+    let m = trimmed.match(/^export\s+default\s+function\s+(\w+)/)
+    if (m) return m[1]
+    // export default Name
+    m = trimmed.match(/^export\s+default\s+(\w+)/)
+    if (m) return m[1]
+    // function Name
+    m = trimmed.match(/^function\s+(\w+)/)
+    if (m) return m[1]
+    // const Name =
+    m = trimmed.match(/^(?:export\s+)?(?:const|let|var)\s+(\w+)\s*=/)
+    if (m) return m[1]
+  }
+  return undefined
+}
+
 // Custom markdown renderers for dashboard code display
 const markdownComponents: Components = {
   code({ className, children, ...props }) {
@@ -20,8 +41,9 @@ const markdownComponents: Components = {
     }
     const language = className?.replace('language-', '') || 'code'
     const codeContent = String(children).replace(/\n$/, '')
+    const title = extractCodeTitle(codeContent)
     return (
-      <CodeBlock code={codeContent} language={language} defaultOpen={false}>
+      <CodeBlock code={codeContent} language={language} title={title} defaultOpen={false}>
         <CodeBlockCopyButton />
       </CodeBlock>
     )

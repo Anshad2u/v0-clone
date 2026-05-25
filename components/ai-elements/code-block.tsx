@@ -23,6 +23,7 @@ const CodeBlockContext = createContext<CodeBlockContextType>({
 export type CodeBlockProps = HTMLAttributes<HTMLDivElement> & {
   code: string
   language: string
+  title?: string
   showLineNumbers?: boolean
   children?: ReactNode
   defaultOpen?: boolean
@@ -31,6 +32,7 @@ export type CodeBlockProps = HTMLAttributes<HTMLDivElement> & {
 export const CodeBlock = ({
   code,
   language,
+  title,
   showLineNumbers = false,
   className,
   children,
@@ -54,7 +56,7 @@ export const CodeBlock = ({
               className="flex w-full items-center justify-between px-4 py-2 text-sm font-medium hover:bg-accent hover:text-accent-foreground"
               type="button"
             >
-              <span className="font-mono text-xs uppercase">{language || 'code'}</span>
+<span className="font-mono text-xs">{title || language || 'code'}</span>
               <ChevronDownIcon
                 className={cn('h-4 w-4 transition-transform duration-200', isOpen && 'rotate-180')}
               />
