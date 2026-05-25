@@ -273,6 +273,52 @@ function stripExports(code: string): { code: string; componentName: string } {
   return { code, componentName }
 }
 
+/**
+ * When the AI exports a component declared inside another function body
+ * (e.g. `const Outer = () => { const Inner = () => { ... }; }; export default Inner`),
+ * hoist the inner component declaration to module level so it can
+ * be used as the render target.
+ */
+function hoistComponent(code: string, componentName: string): string {
+  // Already at module level — no hoisting needed
+  const moduleDeclRe = new RegExp('^(?:const|let|var|function)\\s+' + componentName + '\\b', 'm')
+  if (moduleDeclRe.test(code)) return code
+
+  // Search for `const ComponentName = ... => {` (arrow function with braces)
+  const re = new RegExp('const\\s+' + componentName + '\\s*=\\s*(?:\\([^)]*\\)\\s*=>\\s*\\{)')
+  const match = re.exec(code)
+  if (!match) return code
+
+  const start = match.index
+  let i = match.index + match[0].length - 1  // position at the `{`
+  let braceDepth = 1
+  i++
+  while (i < code.length && braceDepth > 0) {
+    const c = code[i]
+    if (c === '"' || c === "'") {
+      const quote = c; i++
+      while (i < code.length && code[i] !== quote) { if (code[i] === '\\') i++; i++ }
+      if (i < code.length) i++
+      continue
+    }
+    if (c === '`') {
+      i++
+      while (i < code.length && code[i] !== '`') { if (code[i] === '\\') i++; i++ }
+      if (i < code.length) i++
+      continue
+    }
+    if (c === '{') braceDepth++
+    if (c === '}') braceDepth--
+    i++
+  }
+
+  const declEnd = i
+  const declaration = code.substring(start, declEnd)
+  code = code.substring(0, start) + code.substring(declEnd)
+  code = declaration + '\n' + code
+  return code
+}
+
 export async function POST(request: NextRequest) {
   const { code: rawCode } = await request.json()
   if (!rawCode || typeof rawCode !== 'string') {
@@ -291,6 +337,8 @@ export async function POST(request: NextRequest) {
     const stripped = stripExports(code)
     code = stripped.code
     componentName = stripped.componentName
+    // Hoist nested component to module level if not at module scope
+    code = hoistComponent(code, componentName)
 
     // Check for incomplete/streaming code
     if (isCodeIncomplete(code)) {
@@ -339,9 +387,17 @@ export async function POST(request: NextRequest) {
     // Strip import lines from transformed code that the template already
     // provides (react, react-dom/client) to avoid "redeclaration of import".
     let transformedCode = result.code
+
+    // Strip react default import (template provides `import React from 'react'`)
+    // but preserve any named hook imports like useState, useEffect the AI code uses
     transformedCode = transformedCode.replace(
-      /^import\s+.*?from\s+['"]react['"]\s*;?\s*\n?/gm, ''
+      /^import\s+React\s+from\s+['"]react['"]\s*;?\s*\n?/gm, ''
     )
+    transformedCode = transformedCode.replace(
+      /^import\s+React,\s*\{([^}]*)\}\s+from\s+['"]react['"]\s*;?\s*\n?/gm,
+      'import { $1 } from "react"\n'
+    )
+    // Strip react-dom/client import (template provides createRoot)
     transformedCode = transformedCode.replace(
       /^import\s+.*?from\s+['"]react-dom\/client['"]\s*;?\s*\n?/gm, ''
     )
