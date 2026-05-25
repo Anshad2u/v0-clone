@@ -157,6 +157,18 @@ function fixImportBraces(code: string): string {
 }
 
 /**
+ * Fix extra closing parentheses in JSX callback expressions.
+ * AI commonly generates: .map(() => ( ... )))}  (3 parens + 1 brace)
+ * But should be:        .map(() => ( ... ))}   (2 parens + 1 brace)
+ * The extra `)` causes esbuild: Expected "}" but found ")"
+ */
+function fixExtraClosingParens(code: string): string {
+  // Match )))} on its own line (after whitespace) — the 3-paren-then-brace
+  // pattern is almost never valid in TSX. Replace with ))}.
+  return code.replace(/^(\s*)\)\)\)\}/gm, '$1))}')
+}
+
+/**
  * Detect if the code looks incomplete (streaming truncated).
  */
 function isCodeIncomplete(code: string): boolean {
@@ -350,6 +362,8 @@ export async function POST(request: NextRequest) {
 
     // Fix unbalanced HTML closing tags
     code = fixMismatchedClosingTags(code)
+    // Fix extra closing parentheses in JSX callbacks
+    code = fixExtraClosingParens(code)
 
     // Build import map using only known CDN-backed packages.
     // Skip local imports (./, ../) and scoped project imports (@/) since
